@@ -1,4 +1,4 @@
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { BorderRadius } from "@/theme/borderRadius";
 import { Colors } from "@/theme/colors";
 import { Spacing } from "@/theme/spacing";
@@ -6,6 +6,7 @@ import { FontSize } from "@/theme/typography";
 
 import { router } from "expo-router";
 import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { useEffect, useState } from "react";
 
@@ -98,13 +99,9 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
-
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
-  // ----------------------------
   // Animations
-  // ----------------------------
-
   const headerOpacity = useSharedValue(0);
   const headerTranslateY = useSharedValue(28);
 
@@ -191,103 +188,93 @@ export default function RegisterScreen() {
     ],
   }));
 
-  // ============================================================
-  // REGISTER
-  // ============================================================
-
+  // REGISTER + SAVE HERO TO FIRESTORE
   const handleRegister = async () => {
-    console.log("================================");
-    console.log("HANDLE REGISTER STARTED");
-    console.log("Hero Name:", heroName);
-    console.log("Email:", email);
-    console.log("================================");
+    console.log("CREATE HERO STARTED");
 
     if (!heroName.trim()) {
-      console.log("ERROR: Hero name missing");
-
-      Alert.alert(
-        "Error",
-        "Please enter your Hero Name."
-      );
-
+      Alert.alert("Error", "Please enter your Hero Name.");
       return;
     }
 
     if (!email.trim()) {
-      console.log("ERROR: Email missing");
-
-      Alert.alert(
-        "Error",
-        "Please enter your email."
-      );
-
+      Alert.alert("Error", "Please enter your email.");
       return;
     }
 
     if (!password) {
-      console.log("ERROR: Password missing");
-
-      Alert.alert(
-        "Error",
-        "Please enter your password."
-      );
-
+      Alert.alert("Error", "Please enter your password.");
       return;
     }
 
     if (!confirmPassword) {
-      console.log("ERROR: Confirm password missing");
-
-      Alert.alert(
-        "Error",
-        "Please confirm your password."
-      );
-
+      Alert.alert("Error", "Please confirm your password.");
       return;
     }
 
     if (password !== confirmPassword) {
-      console.log("ERROR: Password mismatch");
-
       Alert.alert(
         "Password Mismatch",
         "Passwords do not match."
       );
-
       return;
     }
 
     if (password.length < 6) {
-      console.log("ERROR: Password too short");
-
       Alert.alert(
         "Weak Password",
         "Password must be at least 6 characters."
       );
-
       return;
     }
 
     try {
-      console.log("Starting Firebase registration...");
-
       setLoading(true);
+
+      console.log("Creating Firebase account...");
 
       const userCredential =
         await createUserWithEmailAndPassword(
           auth,
-          email.trim(),
+          email.trim().toLowerCase(),
           password
         );
 
-      console.log("FIREBASE REGISTRATION SUCCESS");
-      console.log(
-        "User UID:",
-        userCredential.user.uid
-      );
+      const user = userCredential.user;
+
+      console.log("AUTH SUCCESS:", user.uid);
+
+      // SAVE HERO PROFILE
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+
+        heroName: heroName.trim(),
+
+        email: email.trim().toLowerCase(),
+
+        class: "",
+
+        level: 1,
+
+        xp: 0,
+
+        totalXP: 0,
+
+        streak: 1,
+
+        completedQuests: [],
+
+        createdAt: serverTimestamp(),
+
+        updatedAt: serverTimestamp(),
+      });
+
+      console.log("HERO DATA SAVED TO FIRESTORE");
 
       if (Platform.OS === "web") {
-        window.alert("Hero Created Successfully!");
+        window.alert(
+          "Hero Created Successfully!"
+        );
       } else {
         Alert.alert(
           "Success",
@@ -295,42 +282,70 @@ export default function RegisterScreen() {
         );
       }
 
-      console.log("Navigating to /character");
-
       router.replace("/character");
     } catch (error: any) {
       console.error(
-        "FIREBASE REGISTRATION ERROR:",
+        "REGISTRATION ERROR:",
         error
       );
 
       console.error(
-        "Firebase error code:",
+        "ERROR CODE:",
         error?.code
       );
 
       console.error(
-        "Firebase error message:",
+        "ERROR MESSAGE:",
         error?.message
       );
 
-      const errorMessage =
+      let message =
         error?.message ||
-        "Unknown registration error";
+        "Unable to create your hero.";
+
+      if (
+        error?.code ===
+        "auth/email-already-in-use"
+      ) {
+        message =
+          "This email is already registered. Please use another email or sign in.";
+      }
+
+      if (
+        error?.code ===
+        "auth/invalid-email"
+      ) {
+        message =
+          "Please enter a valid email address.";
+      }
+
+      if (
+        error?.code ===
+        "auth/weak-password"
+      ) {
+        message =
+          "Please use a stronger password.";
+      }
+
+      if (
+        error?.code ===
+        "permission-denied"
+      ) {
+        message =
+          "Firestore permission denied. Please check your Firestore rules.";
+      }
 
       if (Platform.OS === "web") {
         window.alert(
-          `Registration Failed\n\n${errorMessage}`
+          `Registration Failed\n\n${message}`
         );
       } else {
         Alert.alert(
           "Registration Failed",
-          errorMessage
+          message
         );
       }
     } finally {
-      console.log("Registration process finished");
-
       setLoading(false);
     }
   };
@@ -365,7 +380,6 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
-
           {/* HEADER */}
 
           <Animated.View
@@ -376,10 +390,9 @@ export default function RegisterScreen() {
           >
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => {
-                console.log("BACK BUTTON PRESSED");
-                router.push("/login");
-              }}
+              onPress={() =>
+                router.push("/login")
+              }
               activeOpacity={0.7}
             >
               <Text style={styles.backArrow}>
@@ -480,12 +493,14 @@ export default function RegisterScreen() {
               <Text
                 style={[
                   styles.matchHint,
-                  password === confirmPassword
+                  password ===
+                    confirmPassword
                     ? styles.matchHintSuccess
                     : styles.matchHintError,
                 ]}
               >
-                {password === confirmPassword
+                {password ===
+                  confirmPassword
                   ? "✓ Passwords match"
                   : "✗ Passwords do not match"}
               </Text>
@@ -506,13 +521,7 @@ export default function RegisterScreen() {
                 loading &&
                 styles.buttonDisabled,
               ]}
-              onPress={() => {
-                console.log(
-                  "CREATE HERO BUTTON PRESSED"
-                );
-
-                handleRegister();
-              }}
+              onPress={handleRegister}
               disabled={loading}
               activeOpacity={0.7}
             >
@@ -554,8 +563,6 @@ export default function RegisterScreen() {
               )}
             </TouchableOpacity>
 
-            {/* DIVIDER */}
-
             <View style={styles.dividerRow}>
               <View
                 style={styles.dividerLine}
@@ -571,8 +578,6 @@ export default function RegisterScreen() {
                 style={styles.dividerLine}
               />
             </View>
-
-            {/* LOGIN */}
 
             <View style={styles.footerRow}>
               <Text
@@ -595,16 +600,11 @@ export default function RegisterScreen() {
               </TouchableOpacity>
             </View>
           </Animated.View>
-
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-// ============================================================
-// STYLES
-// ============================================================
 
 const styles = StyleSheet.create({
   keyboardView: {

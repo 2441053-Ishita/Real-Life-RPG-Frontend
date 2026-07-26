@@ -1,5 +1,19 @@
-import { useState } from "react";
+import { auth, db } from "@/lib/firebase";
+
 import {
+  arrayUnion,
+  doc,
+  onSnapshot,
+  runTransaction,
+  serverTimestamp,
+} from "firebase/firestore";
+
+import { useEffect, useState } from "react";
+
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -52,67 +66,316 @@ const QUESTS: Quest[] = [
 ];
 
 export default function QuestsScreen() {
-  const [completedQuests, setCompletedQuests] = useState<number[]>([]);
+  const [completedQuests, setCompletedQuests] =
+    useState<number[]>([]);
 
-  const completeQuest = (questId: number) => {
-    if (completedQuests.includes(questId)) {
+  const [totalXP, setTotalXP] = useState(0);
+
+  const [loading, setLoading] = useState(true);
+
+  const [completingId, setCompletingId] =
+    useState<number | null>(null);
+
+  // ============================================
+  // LOAD QUEST DATA FROM FIRESTORE
+  // ============================================
+
+  useEffect(() => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      setLoading(false);
       return;
     }
 
-    setCompletedQuests((current) => [...current, questId]);
+    const userRef = doc(db, "users", user.uid);
+
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+
+          setCompletedQuests(
+            data.completedQuests || []
+          );
+
+          setTotalXP(data.totalXP ?? 0);
+        }
+
+        setLoading(false);
+      },
+      (error) => {
+        console.error(
+          "QUEST FIRESTORE ERROR:",
+          error
+        );
+
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // ============================================
+  // COMPLETE QUEST
+  // ============================================
+
+  const completeQuest = async (
+    quest: Quest
+  ) => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      if (Platform.OS === "web") {
+        window.alert(
+          "Please sign in again."
+        );
+      } else {
+        Alert.alert(
+          "Session Error",
+          "Please sign in again."
+        );
+      }
+
+      return;
+    }
+
+    if (
+      completedQuests.includes(quest.id)
+    ) {
+      return;
+    }
+
+    try {
+      setCompletingId(quest.id);
+
+      const userRef = doc(
+        db,
+        "users",
+        user.uid
+      );
+
+      await runTransaction(
+        db,
+        async (transaction) => {
+          const snapshot =
+            await transaction.get(userRef);
+
+          if (!snapshot.exists()) {
+            throw new Error(
+              "Hero profile not found."
+            );
+          }
+
+          const data = snapshot.data();
+
+          const currentCompleted: number[] =
+            data.completedQuests || [];
+
+          // Prevent duplicate XP
+          if (
+            currentCompleted.includes(
+              quest.id
+            )
+          ) {
+            return;
+          }
+
+          const currentXP =
+            data.xp ?? 0;
+
+          const currentTotalXP =
+            data.totalXP ?? 0;
+
+          const currentLevel =
+            data.level ?? 1;
+
+          let newXP =
+            currentXP + quest.xp;
+
+          let newLevel =
+            currentLevel;
+
+          // 100 XP = 1 Level
+          while (newXP >= 100) {
+            newXP -= 100;
+            newLevel += 1;
+          }
+
+          transaction.update(
+            userRef,
+            {
+              completedQuests:
+                arrayUnion(quest.id),
+
+              xp: newXP,
+
+              totalXP:
+                currentTotalXP +
+                quest.xp,
+
+              level: newLevel,
+
+              updatedAt:
+                serverTimestamp(),
+            }
+          );
+        }
+      );
+
+      console.log(
+        `QUEST COMPLETED: ${quest.title}`
+      );
+
+      console.log(
+        `XP EARNED: ${quest.xp}`
+      );
+
+      if (Platform.OS === "web") {
+        window.alert(
+          `Quest Complete! +${quest.xp} XP`
+        );
+      } else {
+        Alert.alert(
+          "Quest Complete! ⚔️",
+          `You earned +${quest.xp} XP`
+        );
+      }
+    } catch (error: any) {
+      console.error(
+        "COMPLETE QUEST ERROR:",
+        error
+      );
+
+      const message =
+        error?.message ||
+        "Unable to complete quest.";
+
+      if (Platform.OS === "web") {
+        window.alert(message);
+      } else {
+        Alert.alert(
+          "Quest Error",
+          message
+        );
+      }
+    } finally {
+      setCompletingId(null);
+    }
   };
 
-  const earnedXP = QUESTS.filter((quest) =>
-    completedQuests.includes(quest.id)
-  ).reduce((total, quest) => total + quest.xp, 0);
+  // ============================================
+  // CALCULATIONS
+  // ============================================
+
+  const completedToday =
+    QUESTS.filter((quest) =>
+      completedQuests.includes(
+        quest.id
+      )
+    );
+
+  const earnedToday =
+    completedToday.reduce(
+      (total, quest) =>
+        total + quest.xp,
+      0
+    );
 
   const progress =
-    QUESTS.length === 0
-      ? 0
-      : (completedQuests.length / QUESTS.length) * 100;
+    QUESTS.length > 0
+      ? (completedToday.length /
+        QUESTS.length) *
+      100
+      : 0;
+
+  // ============================================
+  // LOADING
+  // ============================================
+
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator
+          size="large"
+          color="#7C3AED"
+        />
+
+        <Text style={styles.loadingText}>
+          Loading quests...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
       <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={
+          styles.container
+        }
+        showsVerticalScrollIndicator={
+          false
+        }
       >
         {/* HEADER */}
 
         <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>QUEST BOARD</Text>
+          <Text style={styles.eyebrow}>
+            QUEST BOARD
+          </Text>
 
-            <Text style={styles.title}>
-              📜 Daily Quests
-            </Text>
+          <Text style={styles.title}>
+            📜 Daily Quests
+          </Text>
 
-            <Text style={styles.subtitle}>
-              Complete real-life missions and earn XP.
-            </Text>
-          </View>
+          <Text style={styles.subtitle}>
+            Complete real-life missions
+            and earn XP.
+          </Text>
         </View>
 
-        {/* DAILY PROGRESS */}
+        {/* PROGRESS */}
 
-        <View style={styles.progressCard}>
-          <View style={styles.progressHeader}>
+        <View
+          style={styles.progressCard}
+        >
+          <View
+            style={styles.progressHeader}
+          >
             <View>
-              <Text style={styles.progressLabel}>
+              <Text
+                style={
+                  styles.progressLabel
+                }
+              >
                 TODAY'S PROGRESS
               </Text>
 
-              <Text style={styles.progressTitle}>
-                {completedQuests.length} / {QUESTS.length} Completed
+              <Text
+                style={
+                  styles.progressTitle
+                }
+              >
+                {completedToday.length} /{" "}
+                {QUESTS.length} Completed
               </Text>
             </View>
 
-            <Text style={styles.progressEmoji}>
+            <Text
+              style={
+                styles.progressEmoji
+              }
+            >
               ⚔️
             </Text>
           </View>
 
-          <View style={styles.progressTrack}>
+          <View
+            style={styles.progressTrack}
+          >
             <View
               style={[
                 styles.progressFill,
@@ -124,49 +387,110 @@ export default function QuestsScreen() {
           </View>
 
           <View style={styles.rewardRow}>
-            <Text style={styles.rewardLabel}>
-              XP earned today
-            </Text>
+            <View>
+              <Text
+                style={
+                  styles.rewardLabel
+                }
+              >
+                XP earned today
+              </Text>
 
-            <Text style={styles.rewardValue}>
-              +{earnedXP} XP
-            </Text>
+              <Text
+                style={
+                  styles.rewardValue
+                }
+              >
+                +{earnedToday} XP
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.totalXPContainer
+              }
+            >
+              <Text
+                style={
+                  styles.totalXPLabel
+                }
+              >
+                TOTAL XP
+              </Text>
+
+              <Text
+                style={
+                  styles.totalXPValue
+                }
+              >
+                ⭐ {totalXP}
+              </Text>
+            </View>
           </View>
+        </View>
+
+        {/* QUEST HEADER */}
+
+        <View
+          style={styles.sectionHeader}
+        >
+          <Text
+            style={styles.sectionTitle}
+          >
+            Available Quests
+          </Text>
+
+          <Text
+            style={styles.questCount}
+          >
+            {QUESTS.length -
+              completedToday.length}{" "}
+            remaining
+          </Text>
         </View>
 
         {/* QUEST LIST */}
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            Available Quests
-          </Text>
-
-          <Text style={styles.questCount}>
-            {QUESTS.length - completedQuests.length} remaining
-          </Text>
-        </View>
-
         {QUESTS.map((quest) => {
-          const completed = completedQuests.includes(
-            quest.id
-          );
+          const completed =
+            completedQuests.includes(
+              quest.id
+            );
+
+          const isCompleting =
+            completingId === quest.id;
 
           return (
             <View
               key={quest.id}
               style={[
                 styles.questCard,
-                completed && styles.completedCard,
+                completed &&
+                styles.completedCard,
               ]}
             >
-              <View style={styles.questTop}>
-                <View style={styles.questIcon}>
-                  <Text style={styles.questEmoji}>
-                    {completed ? "✅" : quest.emoji}
+              <View
+                style={styles.questTop}
+              >
+                <View
+                  style={styles.questIcon}
+                >
+                  <Text
+                    style={
+                      styles.questEmoji
+                    }
+                  >
+                    {completed
+                      ? "✅"
+                      : quest.emoji}
                   </Text>
                 </View>
 
-                <View style={styles.questInformation}>
+                <View
+                  style={
+                    styles.questInformation
+                  }
+                >
                   <Text
                     style={[
                       styles.questTitle,
@@ -177,33 +501,58 @@ export default function QuestsScreen() {
                     {quest.title}
                   </Text>
 
-                  <Text style={styles.questDescription}>
+                  <Text
+                    style={
+                      styles.questDescription
+                    }
+                  >
                     {quest.description}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.questMeta}>
-                <View style={styles.badges}>
-                  <View style={styles.difficultyBadge}>
+              <View
+                style={styles.questMeta}
+              >
+                <View
+                  style={styles.badges}
+                >
+                  <View
+                    style={
+                      styles.difficultyBadge
+                    }
+                  >
                     <Text
-                      style={styles.difficultyText}
+                      style={
+                        styles.difficultyText
+                      }
                     >
                       {quest.difficulty}
                     </Text>
                   </View>
 
-                  <View style={styles.xpBadge}>
-                    <Text style={styles.xpText}>
+                  <View
+                    style={
+                      styles.xpBadge
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.xpText
+                      }
+                    >
                       +{quest.xp} XP
                     </Text>
                   </View>
                 </View>
 
                 <TouchableOpacity
-                  disabled={completed}
+                  disabled={
+                    completed ||
+                    isCompleting
+                  }
                   onPress={() =>
-                    completeQuest(quest.id)
+                    completeQuest(quest)
                   }
                   activeOpacity={0.75}
                   style={[
@@ -212,41 +561,57 @@ export default function QuestsScreen() {
                     styles.completedButton,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.completeButtonText,
-                      completed &&
-                      styles.completedButtonText,
-                    ]}
-                  >
-                    {completed
-                      ? "Completed ✓"
-                      : "Complete"}
-                  </Text>
+                  {isCompleting ? (
+                    <ActivityIndicator
+                      size="small"
+                      color="#FFFFFF"
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.completeButtonText,
+                        completed &&
+                        styles.completedButtonText,
+                      ]}
+                    >
+                      {completed
+                        ? "Completed ✓"
+                        : "Complete"}
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
           );
         })}
 
-        {/* ALL COMPLETE */}
+        {/* ALL QUESTS COMPLETE */}
 
-        {completedQuests.length === QUESTS.length && (
-          <View style={styles.victoryCard}>
-            <Text style={styles.victoryEmoji}>
-              🏆
-            </Text>
+        {completedToday.length ===
+          QUESTS.length && (
+            <View
+              style={styles.victoryCard}
+            >
+              <Text
+                style={styles.victoryEmoji}
+              >
+                🏆
+              </Text>
 
-            <Text style={styles.victoryTitle}>
-              Daily Quest Clear!
-            </Text>
+              <Text
+                style={styles.victoryTitle}
+              >
+                Daily Quest Clear!
+              </Text>
 
-            <Text style={styles.victoryText}>
-              You completed every quest today and earned{" "}
-              {earnedXP} XP.
-            </Text>
-          </View>
-        )}
+              <Text
+                style={styles.victoryText}
+              >
+                You completed every quest
+                and earned {earnedToday} XP.
+              </Text>
+            </View>
+          )}
       </ScrollView>
     </View>
   );
@@ -256,6 +621,19 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#0F172A",
+  },
+
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#0F172A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  loadingText: {
+    color: "#94A3B8",
+    fontSize: 13,
+    marginTop: 15,
   },
 
   container: {
@@ -300,7 +678,8 @@ const styles = StyleSheet.create({
 
   progressHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     alignItems: "center",
     marginBottom: 18,
   },
@@ -328,7 +707,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#334155",
     borderRadius: 10,
     overflow: "hidden",
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   progressFill: {
@@ -339,23 +718,44 @@ const styles = StyleSheet.create({
 
   rewardRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
+    alignItems: "flex-end",
   },
 
   rewardLabel: {
     color: "#94A3B8",
-    fontSize: 12,
+    fontSize: 10,
   },
 
   rewardValue: {
     color: "#A78BFA",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "800",
+    marginTop: 3,
+  },
+
+  totalXPContainer: {
+    alignItems: "flex-end",
+  },
+
+  totalXPLabel: {
+    color: "#64748B",
+    fontSize: 8,
+    fontWeight: "700",
+  },
+
+  totalXPValue: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 3,
   },
 
   sectionHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     alignItems: "center",
     marginBottom: 14,
   },
@@ -416,7 +816,8 @@ const styles = StyleSheet.create({
   },
 
   completedQuestTitle: {
-    textDecorationLine: "line-through",
+    textDecorationLine:
+      "line-through",
     color: "#94A3B8",
   },
 
@@ -429,7 +830,8 @@ const styles = StyleSheet.create({
   questMeta: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
   },
 
   badges: {
@@ -464,10 +866,14 @@ const styles = StyleSheet.create({
   },
 
   completeButton: {
+    minWidth: 78,
+    minHeight: 32,
     backgroundColor: "#7C3AED",
     paddingHorizontal: 13,
     paddingVertical: 8,
     borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   completedButton: {

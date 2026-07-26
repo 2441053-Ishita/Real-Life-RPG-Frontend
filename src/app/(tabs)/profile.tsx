@@ -1,8 +1,11 @@
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { router } from "expo-router";
 import { signOut } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
+import { useEffect, useState } from "react";
 
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -12,45 +15,261 @@ import {
   View,
 } from "react-native";
 
+type HeroData = {
+  heroName: string;
+  email: string;
+  class: string;
+  level: number;
+  xp: number;
+  totalXP: number;
+  streak: number;
+  completedQuests: number[];
+};
+
+const classInfo: Record<
+  string,
+  {
+    emoji: string;
+    title: string;
+  }
+> = {
+  warrior: {
+    emoji: "🛡️",
+    title: "Warrior",
+  },
+
+  mage: {
+    emoji: "🧙",
+    title: "Mage",
+  },
+
+  archer: {
+    emoji: "🏹",
+    title: "Archer",
+  },
+
+  assassin: {
+    emoji: "🥷",
+    title: "Assassin",
+  },
+};
+
 export default function ProfileScreen() {
-  const user = auth.currentUser;
+  const [hero, setHero] =
+    useState<HeroData | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [loggingOut, setLoggingOut] =
+    useState(false);
+
+  // ============================================
+  // LOAD PROFILE FROM FIRESTORE
+  // ============================================
+
+  useEffect(() => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const userRef = doc(
+      db,
+      "users",
+      user.uid
+    );
+
+    const unsubscribe = onSnapshot(
+      userRef,
+
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+
+          setHero({
+            heroName:
+              data.heroName || "Hero",
+
+            email:
+              data.email ||
+              user.email ||
+              "",
+
+            class:
+              data.class || "warrior",
+
+            level:
+              data.level ?? 1,
+
+            xp:
+              data.xp ?? 0,
+
+            totalXP:
+              data.totalXP ?? 0,
+
+            streak:
+              data.streak ?? 1,
+
+            completedQuests:
+              data.completedQuests || [],
+          });
+        }
+
+        setLoading(false);
+      },
+
+      (error) => {
+        console.error(
+          "PROFILE FIRESTORE ERROR:",
+          error
+        );
+
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // ============================================
+  // LOGOUT
+  // ============================================
 
   const handleLogout = async () => {
     try {
+      setLoggingOut(true);
+
       await signOut(auth);
 
-      if (Platform.OS === "web") {
-        window.alert("Logged out successfully.");
-      } else {
-        Alert.alert("Success", "Logged out successfully.");
-      }
+      console.log("LOGOUT SUCCESS");
 
       router.replace("/login");
     } catch (error: any) {
-      console.error("LOGOUT ERROR:", error);
+      console.error(
+        "LOGOUT ERROR:",
+        error
+      );
+
+      const message =
+        error?.message ||
+        "Unable to logout.";
 
       if (Platform.OS === "web") {
-        window.alert(
-          error?.message || "Unable to logout."
-        );
+        window.alert(message);
       } else {
         Alert.alert(
           "Logout Failed",
-          error?.message || "Unable to logout."
+          message
         );
       }
+    } finally {
+      setLoggingOut(false);
     }
   };
+
+  // ============================================
+  // COMING SOON
+  // ============================================
+
+  const showComingSoon = (
+    feature: string
+  ) => {
+    const message =
+      `${feature} will be added soon.`;
+
+    if (Platform.OS === "web") {
+      window.alert(message);
+    } else {
+      Alert.alert(
+        "Coming Soon",
+        message
+      );
+    }
+  };
+
+  // ============================================
+  // LOADING
+  // ============================================
+
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator
+          size="large"
+          color="#7C3AED"
+        />
+
+        <Text style={styles.loadingText}>
+          Loading profile...
+        </Text>
+      </View>
+    );
+  }
+
+  if (!hero) {
+    return (
+      <View style={styles.loadingScreen}>
+        <Text style={styles.errorEmoji}>
+          ⚠️
+        </Text>
+
+        <Text style={styles.errorTitle}>
+          Profile not found
+        </Text>
+
+        <Text style={styles.errorText}>
+          Your hero profile could not be
+          loaded.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogout}
+        >
+          <Text style={styles.logoutText}>
+            Return to Login
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ============================================
+  // HERO VALUES
+  // ============================================
+
+  const currentClass =
+    classInfo[hero.class] ||
+    classInfo.warrior;
+
+  const completedCount =
+    hero.completedQuests.length;
+
+  const xpNeeded = 100;
+
+  const xpProgress = Math.min(
+    (hero.xp / xpNeeded) * 100,
+    100
+  );
 
   return (
     <View style={styles.screen}>
       <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={
+          styles.container
+        }
+        showsVerticalScrollIndicator={
+          false
+        }
       >
         {/* HEADER */}
 
-        <Text style={styles.eyebrow}>PLAYER PROFILE</Text>
+        <Text style={styles.eyebrow}>
+          PLAYER PROFILE
+        </Text>
 
         <Text style={styles.title}>
           👤 Profile
@@ -64,23 +283,53 @@ export default function ProfileScreen() {
 
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarEmoji}>
-              🛡️
+            <Text
+              style={styles.avatarEmoji}
+            >
+              {currentClass.emoji}
             </Text>
           </View>
 
           <Text style={styles.heroName}>
-            Hero
+            {hero.heroName}
           </Text>
 
           <Text style={styles.heroClass}>
-            Level 1 • Warrior
+            Level {hero.level} •{" "}
+            {currentClass.title}
           </Text>
 
           <View style={styles.levelBadge}>
             <Text style={styles.levelText}>
-              LVL 1
+              LVL {hero.level}
             </Text>
+          </View>
+
+          {/* XP */}
+
+          <View style={styles.xpSection}>
+            <View style={styles.xpHeader}>
+              <Text style={styles.xpLabel}>
+                EXPERIENCE
+              </Text>
+
+              <Text style={styles.xpValue}>
+                {hero.xp} / {xpNeeded} XP
+              </Text>
+            </View>
+
+            <View
+              style={styles.progressTrack}
+            >
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${xpProgress}%`,
+                  },
+                ]}
+              />
+            </View>
           </View>
         </View>
 
@@ -93,21 +342,27 @@ export default function ProfileScreen() {
         <View style={styles.sectionCard}>
           <View style={styles.infoRow}>
             <View style={styles.infoIcon}>
-              <Text style={styles.infoEmoji}>
+              <Text
+                style={styles.infoEmoji}
+              >
                 ✉️
               </Text>
             </View>
 
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>
-                Email
+            <View
+              style={styles.infoContent}
+            >
+              <Text
+                style={styles.infoLabel}
+              >
+                EMAIL
               </Text>
 
               <Text
                 style={styles.infoValue}
                 numberOfLines={1}
               >
-                {user?.email || "No email available"}
+                {hero.email}
               </Text>
             </View>
           </View>
@@ -116,17 +371,54 @@ export default function ProfileScreen() {
 
           <View style={styles.infoRow}>
             <View style={styles.infoIcon}>
-              <Text style={styles.infoEmoji}>
+              <Text
+                style={styles.infoEmoji}
+              >
+                ⚔️
+              </Text>
+            </View>
+
+            <View
+              style={styles.infoContent}
+            >
+              <Text
+                style={styles.infoLabel}
+              >
+                HERO CLASS
+              </Text>
+
+              <Text
+                style={styles.infoValue}
+              >
+                {currentClass.emoji}{" "}
+                {currentClass.title}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.infoRow}>
+            <View style={styles.infoIcon}>
+              <Text
+                style={styles.infoEmoji}
+              >
                 🆔
               </Text>
             </View>
 
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>
-                Account Status
+            <View
+              style={styles.infoContent}
+            >
+              <Text
+                style={styles.infoLabel}
+              >
+                ACCOUNT STATUS
               </Text>
 
-              <Text style={styles.activeText}>
+              <Text
+                style={styles.activeText}
+              >
                 ● Active
               </Text>
             </View>
@@ -141,47 +433,69 @@ export default function ProfileScreen() {
 
         <View style={styles.statsCard}>
           <View style={styles.statItem}>
-            <Text style={styles.statEmoji}>
+            <Text
+              style={styles.statEmoji}
+            >
               ⭐
             </Text>
 
-            <Text style={styles.statValue}>
-              20
+            <Text
+              style={styles.statValue}
+            >
+              {hero.totalXP}
             </Text>
 
-            <Text style={styles.statLabel}>
+            <Text
+              style={styles.statLabel}
+            >
               Total XP
             </Text>
           </View>
 
-          <View style={styles.verticalDivider} />
+          <View
+            style={styles.verticalDivider}
+          />
 
           <View style={styles.statItem}>
-            <Text style={styles.statEmoji}>
+            <Text
+              style={styles.statEmoji}
+            >
               ⚔️
             </Text>
 
-            <Text style={styles.statValue}>
-              0
+            <Text
+              style={styles.statValue}
+            >
+              {completedCount}
             </Text>
 
-            <Text style={styles.statLabel}>
+            <Text
+              style={styles.statLabel}
+            >
               Quests
             </Text>
           </View>
 
-          <View style={styles.verticalDivider} />
+          <View
+            style={styles.verticalDivider}
+          />
 
           <View style={styles.statItem}>
-            <Text style={styles.statEmoji}>
+            <Text
+              style={styles.statEmoji}
+            >
               🔥
             </Text>
 
-            <Text style={styles.statValue}>
-              1
+            <Text
+              style={styles.statValue}
+            >
+              {hero.streak}
             </Text>
 
-            <Text style={styles.statLabel}>
+            <Text
+              style={styles.statLabel}
+            >
               Streak
             </Text>
           </View>
@@ -197,27 +511,38 @@ export default function ProfileScreen() {
           <TouchableOpacity
             style={styles.settingRow}
             activeOpacity={0.7}
-            onPress={() => {
-              if (Platform.OS === "web") {
-                window.alert(
-                  "Edit Hero will be added soon."
-                );
-              } else {
-                Alert.alert(
-                  "Coming Soon",
-                  "Edit Hero will be added soon."
-                );
-              }
-            }}
+            onPress={() =>
+              showComingSoon("Edit Hero")
+            }
           >
-            <View style={styles.settingLeft}>
-              <Text style={styles.settingEmoji}>
+            <View
+              style={styles.settingLeft}
+            >
+              <Text
+                style={
+                  styles.settingEmoji
+                }
+              >
                 ⚔️
               </Text>
 
-              <Text style={styles.settingText}>
-                Edit Hero
-              </Text>
+              <View>
+                <Text
+                  style={
+                    styles.settingText
+                  }
+                >
+                  Edit Hero
+                </Text>
+
+                <Text
+                  style={
+                    styles.settingSubtext
+                  }
+                >
+                  Change hero details
+                </Text>
+              </View>
             </View>
 
             <Text style={styles.arrow}>
@@ -230,27 +555,40 @@ export default function ProfileScreen() {
           <TouchableOpacity
             style={styles.settingRow}
             activeOpacity={0.7}
-            onPress={() => {
-              if (Platform.OS === "web") {
-                window.alert(
-                  "Achievements page coming soon."
-                );
-              } else {
-                Alert.alert(
-                  "Coming Soon",
-                  "Achievements page coming soon."
-                );
-              }
-            }}
+            onPress={() =>
+              showComingSoon(
+                "Achievements"
+              )
+            }
           >
-            <View style={styles.settingLeft}>
-              <Text style={styles.settingEmoji}>
+            <View
+              style={styles.settingLeft}
+            >
+              <Text
+                style={
+                  styles.settingEmoji
+                }
+              >
                 🏆
               </Text>
 
-              <Text style={styles.settingText}>
-                Achievements
-              </Text>
+              <View>
+                <Text
+                  style={
+                    styles.settingText
+                  }
+                >
+                  Achievements
+                </Text>
+
+                <Text
+                  style={
+                    styles.settingSubtext
+                  }
+                >
+                  View unlocked rewards
+                </Text>
+              </View>
             </View>
 
             <Text style={styles.arrow}>
@@ -263,27 +601,40 @@ export default function ProfileScreen() {
           <TouchableOpacity
             style={styles.settingRow}
             activeOpacity={0.7}
-            onPress={() => {
-              if (Platform.OS === "web") {
-                window.alert(
-                  "App settings coming soon."
-                );
-              } else {
-                Alert.alert(
-                  "Coming Soon",
-                  "App settings coming soon."
-                );
-              }
-            }}
+            onPress={() =>
+              showComingSoon(
+                "App Settings"
+              )
+            }
           >
-            <View style={styles.settingLeft}>
-              <Text style={styles.settingEmoji}>
+            <View
+              style={styles.settingLeft}
+            >
+              <Text
+                style={
+                  styles.settingEmoji
+                }
+              >
                 ⚙️
               </Text>
 
-              <Text style={styles.settingText}>
-                App Settings
-              </Text>
+              <View>
+                <Text
+                  style={
+                    styles.settingText
+                  }
+                >
+                  App Settings
+                </Text>
+
+                <Text
+                  style={
+                    styles.settingSubtext
+                  }
+                >
+                  Preferences and options
+                </Text>
+              </View>
             </View>
 
             <Text style={styles.arrow}>
@@ -295,17 +646,43 @@ export default function ProfileScreen() {
         {/* LOGOUT */}
 
         <TouchableOpacity
-          style={styles.logoutButton}
+          style={[
+            styles.logoutButton,
+            loggingOut &&
+            styles.logoutDisabled,
+          ]}
           activeOpacity={0.75}
+          disabled={loggingOut}
           onPress={handleLogout}
         >
-          <Text style={styles.logoutIcon}>
-            🚪
-          </Text>
+          {loggingOut ? (
+            <>
+              <ActivityIndicator
+                size="small"
+                color="#FCA5A5"
+              />
 
-          <Text style={styles.logoutText}>
-            Log Out
-          </Text>
+              <Text
+                style={styles.logoutText}
+              >
+                Logging Out...
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text
+                style={styles.logoutIcon}
+              >
+                🚪
+              </Text>
+
+              <Text
+                style={styles.logoutText}
+              >
+                Log Out
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.version}>
@@ -320,6 +697,39 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#0F172A",
+  },
+
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#0F172A",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 30,
+  },
+
+  loadingText: {
+    color: "#94A3B8",
+    fontSize: 13,
+    marginTop: 15,
+  },
+
+  errorEmoji: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+
+  errorTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+
+  errorText: {
+    color: "#94A3B8",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 20,
   },
 
   container: {
@@ -399,6 +809,44 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "900",
+  },
+
+  xpSection: {
+    width: "100%",
+    marginTop: 20,
+  },
+
+  xpHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+
+  xpLabel: {
+    color: "#94A3B8",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+
+  xpValue: {
+    color: "#A78BFA",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  progressTrack: {
+    width: "100%",
+    height: 8,
+    backgroundColor: "#334155",
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#7C3AED",
+    borderRadius: 10,
   },
 
   sectionTitle: {
@@ -509,12 +957,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 16,
+    paddingVertical: 15,
   },
 
   settingLeft: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
 
   settingEmoji: {
@@ -525,7 +974,13 @@ const styles = StyleSheet.create({
   settingText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
+  },
+
+  settingSubtext: {
+    color: "#64748B",
+    fontSize: 9,
+    marginTop: 3,
   },
 
   arrow: {
@@ -539,16 +994,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#7F1D1D",
     borderRadius: 16,
-    height: 54,
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     marginTop: 3,
+    paddingHorizontal: 15,
+  },
+
+  logoutDisabled: {
+    opacity: 0.6,
   },
 
   logoutIcon: {
     fontSize: 17,
-    marginRight: 8,
   },
 
   logoutText: {

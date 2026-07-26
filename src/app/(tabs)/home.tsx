@@ -1,5 +1,10 @@
+import { auth, db } from "@/lib/firebase";
 import { router } from "expo-router";
+import { doc, onSnapshot } from "firebase/firestore";
+import { useEffect, useState } from "react";
+
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -7,152 +12,398 @@ import {
   View,
 } from "react-native";
 
+type HeroData = {
+  heroName: string;
+  email: string;
+  class: string;
+  level: number;
+  xp: number;
+  totalXP: number;
+  streak: number;
+  completedQuests: number[];
+};
+
+const classEmoji: Record<string, string> = {
+  warrior: "🛡️",
+  mage: "🧙",
+  archer: "🏹",
+  assassin: "🥷",
+};
+
 export default function HomeScreen() {
+  const [hero, setHero] = useState<HeroData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      setLoading(false);
+      router.replace("/login");
+      return;
+    }
+
+    const userRef = doc(db, "users", user.uid);
+
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+
+          setHero({
+            heroName: data.heroName || "Hero",
+            email: data.email || user.email || "",
+            class: data.class || "warrior",
+            level: data.level ?? 1,
+            xp: data.xp ?? 0,
+            totalXP: data.totalXP ?? 0,
+            streak: data.streak ?? 1,
+            completedQuests:
+              data.completedQuests || [],
+          });
+        } else {
+          console.log(
+            "No Firestore hero document found."
+          );
+        }
+
+        setLoading(false);
+      },
+      (error) => {
+        console.error(
+          "HOME FIRESTORE ERROR:",
+          error
+        );
+
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator
+          size="large"
+          color="#7C3AED"
+        />
+
+        <Text style={styles.loadingText}>
+          Loading your adventure...
+        </Text>
+      </View>
+    );
+  }
+
+  if (!hero) {
+    return (
+      <View style={styles.loadingScreen}>
+        <Text style={styles.errorEmoji}>
+          ⚠️
+        </Text>
+
+        <Text style={styles.errorTitle}>
+          Hero profile not found
+        </Text>
+
+        <Text style={styles.errorText}>
+          Create a new hero to begin your adventure.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.createHeroButton}
+          onPress={() =>
+            router.replace("/register")
+          }
+        >
+          <Text
+            style={styles.createHeroButtonText}
+          >
+            Create Hero
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const xpNeeded = 100;
+
+  const xpProgress = Math.min(
+    (hero.xp / xpNeeded) * 100,
+    100
+  );
+
+  const remainingXP = Math.max(
+    xpNeeded - hero.xp,
+    0
+  );
+
+  const heroClass =
+    hero.class.charAt(0).toUpperCase() +
+    hero.class.slice(1);
+
+  const heroEmoji =
+    classEmoji[hero.class] || "⚔️";
+
+  const completedCount =
+    hero.completedQuests.length;
+
   return (
     <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* HEADER */}
+
         <View style={styles.header}>
           <View>
-            <Text style={styles.smallText}>WELCOME BACK</Text>
-            <Text style={styles.heroName}>⚔️ Hero</Text>
+            <Text style={styles.smallText}>
+              WELCOME BACK
+            </Text>
+
+            <Text style={styles.heroName}>
+              {heroEmoji} {hero.heroName}
+            </Text>
+
+            <Text style={styles.heroClass}>
+              {heroClass}
+            </Text>
           </View>
 
           <View style={styles.levelBadge}>
-            <Text style={styles.levelText}>LVL 1</Text>
+            <Text style={styles.levelText}>
+              LVL {hero.level}
+            </Text>
           </View>
         </View>
 
-        {/* Hero Progress Card */}
+        {/* HERO PROGRESS */}
+
         <View style={styles.mainCard}>
           <View style={styles.cardTop}>
             <View>
-              <Text style={styles.cardLabel}>YOUR PROGRESS</Text>
-              <Text style={styles.levelTitle}>Level 1 Adventurer</Text>
+              <Text style={styles.cardLabel}>
+                YOUR PROGRESS
+              </Text>
+
+              <Text style={styles.levelTitle}>
+                Level {hero.level} {heroClass}
+              </Text>
             </View>
 
-            <Text style={styles.trophy}>🏆</Text>
+            <Text style={styles.trophy}>
+              🏆
+            </Text>
           </View>
 
           <View style={styles.xpRow}>
-            <Text style={styles.xpText}>XP Progress</Text>
-            <Text style={styles.xpNumber}>20 / 100 XP</Text>
+            <Text style={styles.xpText}>
+              XP Progress
+            </Text>
+
+            <Text style={styles.xpNumber}>
+              {hero.xp} / {xpNeeded} XP
+            </Text>
           </View>
 
-          <View style={styles.progressBackground}>
-            <View style={styles.progressFill} />
+          <View
+            style={styles.progressBackground}
+          >
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${xpProgress}%`,
+                },
+              ]}
+            />
           </View>
 
           <Text style={styles.nextLevel}>
-            80 XP remaining until Level 2
+            {remainingXP > 0
+              ? `${remainingXP} XP remaining until Level ${hero.level + 1
+              }`
+              : "Ready to level up!"}
           </Text>
         </View>
 
-        {/* Stats */}
+        {/* STATS */}
+
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statEmoji}>🔥</Text>
-            <Text style={styles.statValue}>1</Text>
-            <Text style={styles.statLabel}>Day Streak</Text>
+            <Text style={styles.statEmoji}>
+              🔥
+            </Text>
+
+            <Text style={styles.statValue}>
+              {hero.streak}
+            </Text>
+
+            <Text style={styles.statLabel}>
+              Day Streak
+            </Text>
           </View>
 
           <View style={styles.statCard}>
-            <Text style={styles.statEmoji}>⚡</Text>
-            <Text style={styles.statValue}>100</Text>
-            <Text style={styles.statLabel}>Energy</Text>
+            <Text style={styles.statEmoji}>
+              ⚔️
+            </Text>
+
+            <Text style={styles.statValue}>
+              {completedCount}
+            </Text>
+
+            <Text style={styles.statLabel}>
+              Quests
+            </Text>
           </View>
 
           <View style={styles.statCard}>
-            <Text style={styles.statEmoji}>⭐</Text>
-            <Text style={styles.statValue}>20</Text>
-            <Text style={styles.statLabel}>Total XP</Text>
+            <Text style={styles.statEmoji}>
+              ⭐
+            </Text>
+
+            <Text style={styles.statValue}>
+              {hero.totalXP}
+            </Text>
+
+            <Text style={styles.statLabel}>
+              Total XP
+            </Text>
           </View>
         </View>
 
-        {/* Today's Quests Header */}
+        {/* TODAY'S QUESTS */}
+
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Today's Quests</Text>
-            <Text style={styles.sectionSubtitle}>
+            <Text style={styles.sectionTitle}>
+              Today's Quests
+            </Text>
+
+            <Text
+              style={styles.sectionSubtitle}
+            >
               Complete quests to earn XP
             </Text>
           </View>
 
           <TouchableOpacity
-            onPress={() => router.push("/quests")}
+            onPress={() =>
+              router.push("/quests")
+            }
           >
-            <Text style={styles.viewAll}>View All →</Text>
+            <Text style={styles.viewAll}>
+              View All →
+            </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Quest 1 */}
         <View style={styles.questCard}>
           <View style={styles.questIcon}>
-            <Text style={styles.questEmoji}>💪</Text>
+            <Text style={styles.questEmoji}>
+              💪
+            </Text>
           </View>
 
           <View style={styles.questInfo}>
-            <Text style={styles.questTitle}>Morning Workout</Text>
-            <Text style={styles.questDescription}>
+            <Text style={styles.questTitle}>
+              Morning Workout
+            </Text>
+
+            <Text
+              style={styles.questDescription}
+            >
               Exercise for 30 minutes
             </Text>
           </View>
 
           <View style={styles.xpBadge}>
-            <Text style={styles.xpBadgeText}>+20 XP</Text>
+            <Text style={styles.xpBadgeText}>
+              +20 XP
+            </Text>
           </View>
         </View>
 
-        {/* Quest 2 */}
         <View style={styles.questCard}>
           <View style={styles.questIcon}>
-            <Text style={styles.questEmoji}>📚</Text>
+            <Text style={styles.questEmoji}>
+              📚
+            </Text>
           </View>
 
           <View style={styles.questInfo}>
-            <Text style={styles.questTitle}>Study Session</Text>
-            <Text style={styles.questDescription}>
+            <Text style={styles.questTitle}>
+              Study Session
+            </Text>
+
+            <Text
+              style={styles.questDescription}
+            >
               Focus and study for 1 hour
             </Text>
           </View>
 
           <View style={styles.xpBadge}>
-            <Text style={styles.xpBadgeText}>+30 XP</Text>
+            <Text style={styles.xpBadgeText}>
+              +30 XP
+            </Text>
           </View>
         </View>
 
-        {/* Quest 3 */}
         <View style={styles.questCard}>
           <View style={styles.questIcon}>
-            <Text style={styles.questEmoji}>💧</Text>
+            <Text style={styles.questEmoji}>
+              💧
+            </Text>
           </View>
 
           <View style={styles.questInfo}>
-            <Text style={styles.questTitle}>Stay Hydrated</Text>
-            <Text style={styles.questDescription}>
+            <Text style={styles.questTitle}>
+              Stay Hydrated
+            </Text>
+
+            <Text
+              style={styles.questDescription}
+            >
               Drink enough water today
             </Text>
           </View>
 
           <View style={styles.xpBadge}>
-            <Text style={styles.xpBadgeText}>+10 XP</Text>
+            <Text style={styles.xpBadgeText}>
+              +10 XP
+            </Text>
           </View>
         </View>
 
-        {/* Motivation Card */}
-        <View style={styles.motivationCard}>
-          <Text style={styles.motivationEmoji}>⚔️</Text>
+        {/* MOTIVATION */}
 
-          <View style={styles.motivationInfo}>
-            <Text style={styles.motivationTitle}>
+        <View style={styles.motivationCard}>
+          <Text
+            style={styles.motivationEmoji}
+          >
+            ⚔️
+          </Text>
+
+          <View
+            style={styles.motivationInfo}
+          >
+            <Text
+              style={styles.motivationTitle}
+            >
               Your adventure continues!
             </Text>
 
-            <Text style={styles.motivationText}>
-              Complete today's quests and become stronger.
+            <Text
+              style={styles.motivationText}
+            >
+              Complete today's quests and
+              become stronger.
             </Text>
           </View>
         </View>
@@ -165,6 +416,51 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#0F172A",
+  },
+
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#0F172A",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 30,
+  },
+
+  loadingText: {
+    color: "#94A3B8",
+    fontSize: 13,
+    marginTop: 15,
+  },
+
+  errorEmoji: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+
+  errorTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+
+  errorText: {
+    color: "#94A3B8",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+
+  createHeroButton: {
+    backgroundColor: "#7C3AED",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+
+  createHeroButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
   },
 
   container: {
@@ -192,6 +488,13 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 28,
     fontWeight: "900",
+  },
+
+  heroClass: {
+    color: "#A78BFA",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 4,
   },
 
   levelBadge: {
@@ -267,7 +570,6 @@ const styles = StyleSheet.create({
   },
 
   progressFill: {
-    width: "20%",
     height: "100%",
     backgroundColor: "#7C3AED",
     borderRadius: 10,
