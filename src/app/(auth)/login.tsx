@@ -1,7 +1,9 @@
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
+import { Text, TextInput, TouchableOpacity, View } from "react-native";
 
 export default function LoginScreen() {
+  const router = useRouter();
+
   return (
     <View
       style={{
@@ -59,6 +61,10 @@ export default function LoginScreen() {
       />
 
       <TouchableOpacity
+        onPress={() => {
+          alert("Login Button Working");
+          router.replace("/(tabs)/home");
+        }}
         style={{
           backgroundColor: "#7C3AED",
           padding: 16,
@@ -78,13 +84,17 @@ export default function LoginScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={{ marginTop: 20 }}
         onPress={() => router.push("/register")}
+        style={{
+          marginTop: 20,
+          alignItems: "center",
+        }}
       >
         <Text
           style={{
             color: "#A78BFA",
-            textAlign: "center",
+            fontWeight: "bold",
+            fontSize: 16,
           }}
         >
           Don't have an account? Create Hero
