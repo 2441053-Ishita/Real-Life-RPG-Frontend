@@ -1,4 +1,5 @@
 import { auth, db } from "@/lib/firebase";
+import { router } from "expo-router";
 import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 
@@ -7,8 +8,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
+
+// ============================================
+// TYPES
+// ============================================
 
 type HeroData = {
   heroName: string;
@@ -17,8 +23,25 @@ type HeroData = {
   xp: number;
   totalXP: number;
   streak: number;
-  completedQuests: number[];
+
+  completedQuests: string[];
+
+  totalQuestsCompleted: number;
+
+  unlockedAchievements: string[];
 };
+
+type Achievement = {
+  id: string;
+  icon: string;
+  title: string;
+  description: string;
+  unlocked: boolean;
+};
+
+// ============================================
+// CLASS INFO
+// ============================================
 
 const classInfo: Record<
   string,
@@ -47,6 +70,10 @@ const classInfo: Record<
     title: "Assassin",
   },
 };
+
+// ============================================
+// CHARACTER SCREEN
+// ============================================
 
 export default function CharacterScreen() {
   const [hero, setHero] =
@@ -80,12 +107,34 @@ export default function CharacterScreen() {
         if (snapshot.exists()) {
           const data = snapshot.data();
 
+          const completedQuests =
+            Array.isArray(
+              data.completedQuests
+            )
+              ? data.completedQuests.map(
+                (id: unknown) =>
+                  String(id)
+              )
+              : [];
+
+          const unlockedAchievements =
+            Array.isArray(
+              data.unlockedAchievements
+            )
+              ? data.unlockedAchievements.map(
+                (id: unknown) =>
+                  String(id)
+              )
+              : [];
+
           setHero({
             heroName:
-              data.heroName || "Hero",
+              data.heroName ||
+              "Hero",
 
             class:
-              data.class || "warrior",
+              data.class ||
+              "warrior",
 
             level:
               data.level ?? 1,
@@ -97,11 +146,18 @@ export default function CharacterScreen() {
               data.totalXP ?? 0,
 
             streak:
-              data.streak ?? 1,
+              data.streak ?? 0,
 
-            completedQuests:
-              data.completedQuests || [],
+            completedQuests,
+
+            totalQuestsCompleted:
+              data.totalQuestsCompleted ??
+              completedQuests.length,
+
+            unlockedAchievements,
           });
+        } else {
+          setHero(null);
         }
 
         setLoading(false);
@@ -117,7 +173,8 @@ export default function CharacterScreen() {
       }
     );
 
-    return () => unsubscribe();
+    return () =>
+      unsubscribe();
   }, []);
 
   // ============================================
@@ -126,32 +183,61 @@ export default function CharacterScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingScreen}>
+      <View
+        style={
+          styles.loadingScreen
+        }
+      >
         <ActivityIndicator
           size="large"
           color="#7C3AED"
         />
 
-        <Text style={styles.loadingText}>
+        <Text
+          style={
+            styles.loadingText
+          }
+        >
           Loading your hero...
         </Text>
       </View>
     );
   }
 
+  // ============================================
+  // HERO NOT FOUND
+  // ============================================
+
   if (!hero) {
     return (
-      <View style={styles.loadingScreen}>
-        <Text style={styles.errorEmoji}>
+      <View
+        style={
+          styles.loadingScreen
+        }
+      >
+        <Text
+          style={
+            styles.errorEmoji
+          }
+        >
           ⚠️
         </Text>
 
-        <Text style={styles.errorTitle}>
+        <Text
+          style={
+            styles.errorTitle
+          }
+        >
           Hero not found
         </Text>
 
-        <Text style={styles.errorText}>
-          Your hero profile could not be loaded.
+        <Text
+          style={
+            styles.errorText
+          }
+        >
+          Your hero profile could not
+          be loaded.
         </Text>
       </View>
     );
@@ -167,32 +253,45 @@ export default function CharacterScreen() {
 
   const xpNeeded = 100;
 
-  const xpProgress = Math.min(
-    (hero.xp / xpNeeded) * 100,
-    100
-  );
+  const xpProgress =
+    Math.min(
+      (hero.xp / xpNeeded) *
+      100,
+      100
+    );
 
-  const remainingXP = Math.max(
-    xpNeeded - hero.xp,
-    0
-  );
+  const remainingXP =
+    Math.max(
+      xpNeeded - hero.xp,
+      0
+    );
+
+  // ============================================
+  // LIFETIME QUEST COUNT
+  // ============================================
 
   const completedCount =
-    hero.completedQuests.length;
+    hero.totalQuestsCompleted;
 
-  // Simple stat growth based on level
+  // ============================================
+  // HERO STATS
+  // ============================================
 
   const strength =
-    10 + (hero.level - 1) * 2;
+    10 +
+    (hero.level - 1) * 2;
 
   const intelligence =
-    10 + (hero.level - 1) * 2;
+    10 +
+    (hero.level - 1) * 2;
 
   const agility =
-    10 + (hero.level - 1) * 2;
+    10 +
+    (hero.level - 1) * 2;
 
   const vitality =
-    10 + (hero.level - 1) * 2;
+    10 +
+    (hero.level - 1) * 2;
 
   const stats = [
     {
@@ -221,55 +320,193 @@ export default function CharacterScreen() {
   ];
 
   // ============================================
+  // PERMANENT ACHIEVEMENT CHECK
+  // ============================================
+
+  const hasAchievement = (
+    id: string
+  ) => {
+    return (
+      hero.unlockedAchievements.includes(
+        id
+      )
+    );
+  };
+
+  // ============================================
   // ACHIEVEMENTS
   // ============================================
 
-  const achievements = [
-    {
-      icon: "🌱",
-      title: "First Step",
-      description:
-        "Complete your first quest",
-      unlocked:
-        completedCount >= 1,
-    },
+  const achievements: Achievement[] =
+    [
+      {
+        id: "first-step",
 
-    {
-      icon: "🔥",
-      title: "On Fire",
-      description:
-        "Reach a 7 day streak",
-      unlocked:
-        hero.streak >= 7,
-    },
+        icon: "🌱",
 
-    {
-      icon: "⚔️",
-      title: "Quest Master",
-      description:
-        "Complete 25 quests",
-      unlocked:
-        completedCount >= 25,
-    },
+        title: "First Step",
 
-    {
-      icon: "⭐",
-      title: "Rising Hero",
-      description:
-        "Earn 100 total XP",
-      unlocked:
-        hero.totalXP >= 100,
-    },
-  ];
+        description:
+          "Complete your first quest",
 
-  const unlockedAchievements =
+        unlocked:
+          hasAchievement(
+            "first-step"
+          ) ||
+          completedCount >= 1,
+      },
+
+      {
+        id: "rising-hero",
+
+        icon: "⭐",
+
+        title: "Rising Hero",
+
+        description:
+          "Earn 100 total XP",
+
+        unlocked:
+          hasAchievement(
+            "rising-hero"
+          ) ||
+          hero.totalXP >= 100,
+      },
+
+      {
+        id: "streak-3",
+
+        icon: "🥉",
+
+        title: "3-Day Warrior",
+
+        description:
+          "Reach a 3 day streak",
+
+        unlocked:
+          hasAchievement(
+            "streak-3"
+          ),
+      },
+
+      {
+        id: "streak-7",
+
+        icon: "🥈",
+
+        title: "7-Day Champion",
+
+        description:
+          "Reach a 7 day streak",
+
+        unlocked:
+          hasAchievement(
+            "streak-7"
+          ),
+      },
+
+      {
+        id: "streak-14",
+
+        icon: "🥇",
+
+        title: "14-Day Master",
+
+        description:
+          "Reach a 14 day streak",
+
+        unlocked:
+          hasAchievement(
+            "streak-14"
+          ),
+      },
+
+      {
+        id: "streak-30",
+
+        icon: "👑",
+
+        title: "30-Day Legend",
+
+        description:
+          "Reach a 30 day streak",
+
+        unlocked:
+          hasAchievement(
+            "streak-30"
+          ),
+      },
+
+      {
+        id: "quest-master",
+
+        icon: "⚔️",
+
+        title: "Quest Master",
+
+        description:
+          "Complete 25 quests",
+
+        unlocked:
+          hasAchievement(
+            "quest-master"
+          ) ||
+          completedCount >= 25,
+      },
+    ];
+
+  // ============================================
+  // ACHIEVEMENT COUNT
+  // ============================================
+
+  const unlockedCount =
     achievements.filter(
       (achievement) =>
         achievement.unlocked
     ).length;
 
+  // ============================================
+  // NEXT STREAK MILESTONE
+  // ============================================
+
+  const streakMilestones = [
+    {
+      days: 3,
+      id: "streak-3",
+    },
+
+    {
+      days: 7,
+      id: "streak-7",
+    },
+
+    {
+      days: 14,
+      id: "streak-14",
+    },
+
+    {
+      days: 30,
+      id: "streak-30",
+    },
+  ];
+
+  const nextStreakMilestone =
+    streakMilestones.find(
+      (milestone) =>
+        !hasAchievement(
+          milestone.id
+        )
+    );
+
+  // ============================================
+  // UI
+  // ============================================
+
   return (
-    <View style={styles.screen}>
+    <View
+      style={styles.screen}
+    >
       <ScrollView
         contentContainerStyle={
           styles.container
@@ -280,42 +517,68 @@ export default function CharacterScreen() {
       >
         {/* HEADER */}
 
-        <Text style={styles.eyebrow}>
+        <Text
+          style={styles.eyebrow}
+        >
           YOUR HERO
         </Text>
 
-        <Text style={styles.title}>
+        <Text
+          style={styles.title}
+        >
           ⚔️ Character
         </Text>
 
-        <Text style={styles.subtitle}>
-          Grow stronger with every quest
-          you complete.
+        <Text
+          style={styles.subtitle}
+        >
+          Grow stronger with every
+          quest you complete.
         </Text>
 
         {/* HERO CARD */}
 
-        <View style={styles.heroCard}>
-          <View style={styles.avatar}>
+        <View
+          style={styles.heroCard}
+        >
+          <View
+            style={styles.avatar}
+          >
             <Text
-              style={styles.avatarEmoji}
+              style={
+                styles.avatarEmoji
+              }
             >
               {currentClass.emoji}
             </Text>
           </View>
 
-          <Text style={styles.heroName}>
+          <Text
+            style={
+              styles.heroName
+            }
+          >
             {hero.heroName}
           </Text>
 
-          <Text style={styles.heroClass}>
+          <Text
+            style={
+              styles.heroClass
+            }
+          >
             Level {hero.level} •{" "}
             {currentClass.title}
           </Text>
 
-          <View style={styles.levelBadge}>
+          <View
+            style={
+              styles.levelBadge
+            }
+          >
             <Text
-              style={styles.levelBadgeText}
+              style={
+                styles.levelBadgeText
+              }
             >
               LVL {hero.level}
             </Text>
@@ -323,30 +586,51 @@ export default function CharacterScreen() {
 
           {/* XP */}
 
-          <View style={styles.xpHeader}>
-            <Text style={styles.xpLabel}>
+          <View
+            style={
+              styles.xpHeader
+            }
+          >
+            <Text
+              style={
+                styles.xpLabel
+              }
+            >
               EXPERIENCE
             </Text>
 
-            <Text style={styles.xpValue}>
-              {hero.xp} / {xpNeeded} XP
+            <Text
+              style={
+                styles.xpValue
+              }
+            >
+              {hero.xp} /{" "}
+              {xpNeeded} XP
             </Text>
           </View>
 
           <View
-            style={styles.progressTrack}
+            style={
+              styles.progressTrack
+            }
           >
             <View
               style={[
                 styles.progressFill,
+
                 {
-                  width: `${xpProgress}%`,
+                  width:
+                    `${xpProgress}%`,
                 },
               ]}
             />
           </View>
 
-          <Text style={styles.nextLevel}>
+          <Text
+            style={
+              styles.nextLevel
+            }
+          >
             {remainingXP > 0
               ? `${remainingXP} XP until Level ${hero.level + 1
               }`
@@ -354,132 +638,350 @@ export default function CharacterScreen() {
           </Text>
         </View>
 
-        {/* STATS */}
+        {/* HERO STATS */}
 
         <View
-          style={styles.sectionHeader}
+          style={
+            styles.sectionHeader
+          }
         >
           <Text
-            style={styles.sectionTitle}
+            style={
+              styles.sectionTitle
+            }
           >
             Hero Stats
           </Text>
 
           <Text
-            style={styles.sectionHint}
+            style={
+              styles.sectionHint
+            }
           >
             Level {hero.level}
           </Text>
         </View>
 
-        <View style={styles.statsGrid}>
-          {stats.map((stat) => (
-            <View
-              key={stat.name}
-              style={styles.statCard}
-            >
-              <Text
-                style={styles.statIcon}
+        <View
+          style={
+            styles.statsGrid
+          }
+        >
+          {stats.map(
+            (stat) => (
+              <View
+                key={stat.name}
+                style={
+                  styles.statCard
+                }
               >
-                {stat.icon}
-              </Text>
+                <Text
+                  style={
+                    styles.statIcon
+                  }
+                >
+                  {stat.icon}
+                </Text>
 
-              <Text
-                style={styles.statValue}
-              >
-                {stat.value}
-              </Text>
+                <Text
+                  style={
+                    styles.statValue
+                  }
+                >
+                  {stat.value}
+                </Text>
 
-              <Text
-                style={styles.statName}
-              >
-                {stat.name}
-              </Text>
-            </View>
-          ))}
+                <Text
+                  style={
+                    styles.statName
+                  }
+                >
+                  {stat.name}
+                </Text>
+              </View>
+            )
+          )}
         </View>
 
         {/* ADVENTURE RECORD */}
 
-        <Text
-          style={styles.sectionTitle}
+        <View
+          style={
+            styles.recordHeader
+          }
         >
-          Adventure Record
-        </Text>
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Adventure Record
+          </Text>
 
-        <View style={styles.recordCard}>
-          <View
-            style={styles.recordItem}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() =>
+              router.push(
+                "/quest-history"
+              )
+            }
           >
             <Text
-              style={styles.recordValue}
+              style={
+                styles.historyLink
+              }
+            >
+              View History →
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View
+          style={
+            styles.recordCard
+          }
+        >
+          <View
+            style={
+              styles.recordItem
+            }
+          >
+            <Text
+              style={
+                styles.recordValue
+              }
             >
               {completedCount}
             </Text>
 
             <Text
-              style={styles.recordLabel}
+              style={
+                styles.recordLabel
+              }
             >
-              Quests
+              Total Quests
             </Text>
           </View>
 
           <View
-            style={styles.recordDivider}
+            style={
+              styles.recordDivider
+            }
           />
 
           <View
-            style={styles.recordItem}
+            style={
+              styles.recordItem
+            }
           >
             <Text
-              style={styles.recordValue}
+              style={
+                styles.recordValue
+              }
             >
               {hero.streak}
             </Text>
 
             <Text
-              style={styles.recordLabel}
+              style={
+                styles.recordLabel
+              }
             >
               Day Streak
             </Text>
           </View>
 
           <View
-            style={styles.recordDivider}
+            style={
+              styles.recordDivider
+            }
           />
 
           <View
-            style={styles.recordItem}
+            style={
+              styles.recordItem
+            }
           >
             <Text
-              style={styles.recordValue}
+              style={
+                styles.recordValue
+              }
             >
               {hero.totalXP}
             </Text>
 
             <Text
-              style={styles.recordLabel}
+              style={
+                styles.recordLabel
+              }
             >
               Total XP
             </Text>
           </View>
         </View>
 
+        {/* STREAK MILESTONE */}
+
+        <Text
+          style={
+            styles.sectionTitle
+          }
+        >
+          Streak Journey
+        </Text>
+
+        <View
+          style={
+            styles.streakJourneyCard
+          }
+        >
+          <View
+            style={
+              styles.streakJourneyTop
+            }
+          >
+            <View>
+              <Text
+                style={
+                  styles.streakJourneyLabel
+                }
+              >
+                CURRENT STREAK
+              </Text>
+
+              <Text
+                style={
+                  styles.streakJourneyValue
+                }
+              >
+                🔥 {hero.streak}{" "}
+                {hero.streak === 1
+                  ? "Day"
+                  : "Days"}
+              </Text>
+            </View>
+
+            <Text
+              style={
+                styles.streakJourneyEmoji
+              }
+            >
+              🏆
+            </Text>
+          </View>
+
+          {nextStreakMilestone ? (
+            <Text
+              style={
+                styles.streakJourneyText
+              }
+            >
+              Next milestone:{" "}
+              {
+                nextStreakMilestone.days
+              }{" "}
+              day streak
+            </Text>
+          ) : (
+            <Text
+              style={
+                styles.streakJourneyText
+              }
+            >
+              All streak milestones
+              unlocked. Legendary!
+            </Text>
+          )}
+
+          <View
+            style={
+              styles.milestoneRow
+            }
+          >
+            {streakMilestones.map(
+              (milestone) => {
+                const unlocked =
+                  hasAchievement(
+                    milestone.id
+                  );
+
+                return (
+                  <View
+                    key={
+                      milestone.id
+                    }
+                    style={[
+                      styles.milestoneItem,
+
+                      unlocked &&
+                      styles.milestoneUnlocked,
+                    ]}
+                  >
+                    <Text
+                      style={
+                        styles.milestoneEmoji
+                      }
+                    >
+                      {milestone.days ===
+                        3
+                        ? "🥉"
+                        : milestone.days ===
+                          7
+                          ? "🥈"
+                          : milestone.days ===
+                            14
+                            ? "🥇"
+                            : "👑"}
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.milestoneDays
+                      }
+                    >
+                      {
+                        milestone.days
+                      }{" "}
+                      Days
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.milestoneStatus
+                      }
+                    >
+                      {unlocked
+                        ? "Unlocked"
+                        : "Locked"}
+                    </Text>
+                  </View>
+                );
+              }
+            )}
+          </View>
+        </View>
+
         {/* ACHIEVEMENTS */}
 
         <View
-          style={styles.sectionHeader}
+          style={
+            styles.sectionHeader
+          }
         >
           <Text
-            style={styles.sectionTitle}
+            style={
+              styles.sectionTitle
+            }
           >
             Achievements
           </Text>
 
           <Text
-            style={styles.sectionHint}
+            style={
+              styles.sectionHint
+            }
           >
-            {unlockedAchievements} /{" "}
+            {unlockedCount} /{" "}
             {achievements.length}
           </Text>
         </View>
@@ -487,12 +989,17 @@ export default function CharacterScreen() {
         {achievements.map(
           (achievement) => (
             <View
-              key={achievement.title}
+              key={
+                achievement.id
+              }
               style={[
                 styles.achievementCard,
 
                 !achievement.unlocked &&
                 styles.lockedAchievement,
+
+                achievement.unlocked &&
+                styles.unlockedAchievementCard,
               ]}
             >
               <View
@@ -529,11 +1036,13 @@ export default function CharacterScreen() {
                     styles.achievementDescription
                   }
                 >
-                  {achievement.description}
+                  {
+                    achievement.description
+                  }
                 </Text>
               </View>
 
-              {achievement.unlocked && (
+              {achievement.unlocked ? (
                 <View
                   style={
                     styles.unlockedBadge
@@ -547,6 +1056,20 @@ export default function CharacterScreen() {
                     UNLOCKED
                   </Text>
                 </View>
+              ) : (
+                <View
+                  style={
+                    styles.lockedBadge
+                  }
+                >
+                  <Text
+                    style={
+                      styles.lockedText
+                    }
+                  >
+                    LOCKED
+                  </Text>
+                </View>
               )}
             </View>
           )
@@ -555,7 +1078,9 @@ export default function CharacterScreen() {
         {/* MOTIVATION */}
 
         <View
-          style={styles.motivationCard}
+          style={
+            styles.motivationCard
+          }
         >
           <Text
             style={
@@ -583,9 +1108,11 @@ export default function CharacterScreen() {
                 styles.motivationText
               }
             >
-              Your real-life actions shape
-              your hero. Complete quests,
-              earn XP and level up.
+              Your real-life actions
+              shape your hero. Complete
+              quests, build your streak,
+              unlock achievements and
+              level up.
             </Text>
           </View>
         </View>
@@ -594,17 +1121,24 @@ export default function CharacterScreen() {
   );
 }
 
+// ============================================
+// STYLES
+// ============================================
+
 const styles =
   StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: "#0F172A",
+      backgroundColor:
+        "#0F172A",
     },
 
     loadingScreen: {
       flex: 1,
-      backgroundColor: "#0F172A",
-      justifyContent: "center",
+      backgroundColor:
+        "#0F172A",
+      justifyContent:
+        "center",
       alignItems: "center",
       padding: 30,
     },
@@ -662,12 +1196,14 @@ const styles =
     },
 
     heroCard: {
-      backgroundColor: "#1E293B",
+      backgroundColor:
+        "#1E293B",
       borderRadius: 22,
       padding: 20,
       alignItems: "center",
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       marginBottom: 28,
     },
 
@@ -675,11 +1211,14 @@ const styles =
       width: 85,
       height: 85,
       borderRadius: 43,
-      backgroundColor: "#312E81",
+      backgroundColor:
+        "#312E81",
       alignItems: "center",
-      justifyContent: "center",
+      justifyContent:
+        "center",
       borderWidth: 2,
-      borderColor: "#7C3AED",
+      borderColor:
+        "#7C3AED",
       marginBottom: 12,
     },
 
@@ -700,7 +1239,8 @@ const styles =
     },
 
     levelBadge: {
-      backgroundColor: "#7C3AED",
+      backgroundColor:
+        "#7C3AED",
       paddingHorizontal: 12,
       paddingVertical: 6,
       borderRadius: 15,
@@ -739,18 +1279,21 @@ const styles =
       width: "100%",
       height: 9,
       borderRadius: 10,
-      backgroundColor: "#334155",
+      backgroundColor:
+        "#334155",
       overflow: "hidden",
     },
 
     progressFill: {
       height: "100%",
-      backgroundColor: "#7C3AED",
+      backgroundColor:
+        "#7C3AED",
       borderRadius: 10,
     },
 
     nextLevel: {
-      alignSelf: "flex-start",
+      alignSelf:
+        "flex-start",
       color: "#64748B",
       fontSize: 10,
       marginTop: 8,
@@ -787,10 +1330,12 @@ const styles =
 
     statCard: {
       width: "48%",
-      backgroundColor: "#1E293B",
+      backgroundColor:
+        "#1E293B",
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       alignItems: "center",
       paddingVertical: 17,
       marginBottom: 10,
@@ -813,11 +1358,31 @@ const styles =
       marginTop: 3,
     },
 
+    // ========================================
+    // ADVENTURE RECORD
+    // ========================================
+
+    recordHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+    },
+
+    historyLink: {
+      color: "#A78BFA",
+      fontSize: 11,
+      fontWeight: "800",
+      marginBottom: 14,
+    },
+
     recordCard: {
-      backgroundColor: "#1E293B",
+      backgroundColor:
+        "#1E293B",
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       flexDirection: "row",
       alignItems: "center",
       paddingVertical: 18,
@@ -844,18 +1409,120 @@ const styles =
     recordDivider: {
       height: 30,
       width: 1,
-      backgroundColor: "#334155",
+      backgroundColor:
+        "#334155",
     },
+
+    // ========================================
+    // STREAK JOURNEY
+    // ========================================
+
+    streakJourneyCard: {
+      backgroundColor:
+        "#1E293B",
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor:
+        "#334155",
+      padding: 16,
+      marginBottom: 28,
+    },
+
+    streakJourneyTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+    },
+
+    streakJourneyLabel: {
+      color: "#F59E0B",
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+    },
+
+    streakJourneyValue: {
+      color: "#FFFFFF",
+      fontSize: 20,
+      fontWeight: "900",
+      marginTop: 5,
+    },
+
+    streakJourneyEmoji: {
+      fontSize: 32,
+    },
+
+    streakJourneyText: {
+      color: "#94A3B8",
+      fontSize: 10,
+      marginTop: 10,
+      marginBottom: 15,
+    },
+
+    milestoneRow: {
+      flexDirection: "row",
+      gap: 7,
+    },
+
+    milestoneItem: {
+      flex: 1,
+      backgroundColor:
+        "#0F172A",
+      borderWidth: 1,
+      borderColor:
+        "#334155",
+      borderRadius: 12,
+      alignItems: "center",
+      paddingVertical: 10,
+      opacity: 0.55,
+    },
+
+    milestoneUnlocked: {
+      backgroundColor:
+        "#312E81",
+      borderColor:
+        "#7C3AED",
+      opacity: 1,
+    },
+
+    milestoneEmoji: {
+      fontSize: 19,
+      marginBottom: 4,
+    },
+
+    milestoneDays: {
+      color: "#FFFFFF",
+      fontSize: 9,
+      fontWeight: "800",
+    },
+
+    milestoneStatus: {
+      color: "#94A3B8",
+      fontSize: 7,
+      marginTop: 3,
+    },
+
+    // ========================================
+    // ACHIEVEMENTS
+    // ========================================
 
     achievementCard: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: "#1E293B",
+      backgroundColor:
+        "#1E293B",
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       padding: 14,
       marginBottom: 11,
+    },
+
+    unlockedAchievementCard: {
+      borderColor:
+        "#4C1D95",
     },
 
     lockedAchievement: {
@@ -866,9 +1533,11 @@ const styles =
       width: 44,
       height: 44,
       borderRadius: 13,
-      backgroundColor: "#0F172A",
+      backgroundColor:
+        "#0F172A",
       alignItems: "center",
-      justifyContent: "center",
+      justifyContent:
+        "center",
       marginRight: 12,
     },
 
@@ -878,6 +1547,7 @@ const styles =
 
     achievementInfo: {
       flex: 1,
+      paddingRight: 5,
     },
 
     achievementTitle: {
@@ -893,7 +1563,8 @@ const styles =
     },
 
     unlockedBadge: {
-      backgroundColor: "#312E81",
+      backgroundColor:
+        "#312E81",
       paddingHorizontal: 8,
       paddingVertical: 5,
       borderRadius: 8,
@@ -901,12 +1572,27 @@ const styles =
 
     unlockedText: {
       color: "#C4B5FD",
-      fontSize: 8,
+      fontSize: 7,
+      fontWeight: "900",
+    },
+
+    lockedBadge: {
+      backgroundColor:
+        "#0F172A",
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      borderRadius: 8,
+    },
+
+    lockedText: {
+      color: "#64748B",
+      fontSize: 7,
       fontWeight: "900",
     },
 
     motivationCard: {
-      backgroundColor: "#312E81",
+      backgroundColor:
+        "#312E81",
       borderRadius: 18,
       padding: 17,
       flexDirection: "row",

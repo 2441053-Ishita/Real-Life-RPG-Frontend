@@ -15,6 +15,10 @@ import {
   View,
 } from "react-native";
 
+// ============================================
+// TYPES
+// ============================================
+
 type HeroData = {
   heroName: string;
   email: string;
@@ -23,8 +27,17 @@ type HeroData = {
   xp: number;
   totalXP: number;
   streak: number;
-  completedQuests: number[];
+
+  completedQuests: string[];
+
+  totalQuestsCompleted: number;
+
+  unlockedAchievements: string[];
 };
+
+// ============================================
+// CLASS INFO
+// ============================================
 
 const classInfo: Record<
   string,
@@ -54,6 +67,10 @@ const classInfo: Record<
   },
 };
 
+// ============================================
+// PROFILE SCREEN
+// ============================================
+
 export default function ProfileScreen() {
   const [hero, setHero] =
     useState<HeroData | null>(null);
@@ -65,7 +82,7 @@ export default function ProfileScreen() {
     useState(false);
 
   // ============================================
-  // LOAD PROFILE FROM FIRESTORE
+  // LOAD PROFILE
   // ============================================
 
   useEffect(() => {
@@ -89,9 +106,30 @@ export default function ProfileScreen() {
         if (snapshot.exists()) {
           const data = snapshot.data();
 
+          const completedQuests =
+            Array.isArray(
+              data.completedQuests
+            )
+              ? data.completedQuests.map(
+                (id: unknown) =>
+                  String(id)
+              )
+              : [];
+
+          const unlockedAchievements =
+            Array.isArray(
+              data.unlockedAchievements
+            )
+              ? data.unlockedAchievements.map(
+                (id: unknown) =>
+                  String(id)
+              )
+              : [];
+
           setHero({
             heroName:
-              data.heroName || "Hero",
+              data.heroName ||
+              "Hero",
 
             email:
               data.email ||
@@ -99,7 +137,8 @@ export default function ProfileScreen() {
               "",
 
             class:
-              data.class || "warrior",
+              data.class ||
+              "warrior",
 
             level:
               data.level ?? 1,
@@ -111,11 +150,18 @@ export default function ProfileScreen() {
               data.totalXP ?? 0,
 
             streak:
-              data.streak ?? 1,
+              data.streak ?? 0,
 
-            completedQuests:
-              data.completedQuests || [],
+            completedQuests,
+
+            totalQuestsCompleted:
+              data.totalQuestsCompleted ??
+              completedQuests.length,
+
+            unlockedAchievements,
           });
+        } else {
+          setHero(null);
         }
 
         setLoading(false);
@@ -131,63 +177,106 @@ export default function ProfileScreen() {
       }
     );
 
-    return () => unsubscribe();
+    return () =>
+      unsubscribe();
   }, []);
+
+  // ============================================
+  // MESSAGE
+  // ============================================
+
+  const showMessage = (
+    title: string,
+    message: string
+  ) => {
+    if (Platform.OS === "web") {
+      window.alert(
+        `${title}\n\n${message}`
+      );
+    } else {
+      Alert.alert(
+        title,
+        message
+      );
+    }
+  };
 
   // ============================================
   // LOGOUT
   // ============================================
 
-  const handleLogout = async () => {
-    try {
-      setLoggingOut(true);
+  const performLogout =
+    async () => {
+      try {
+        setLoggingOut(true);
 
-      await signOut(auth);
+        await signOut(auth);
 
-      console.log("LOGOUT SUCCESS");
-
-      router.replace("/login");
-    } catch (error: any) {
-      console.error(
-        "LOGOUT ERROR:",
-        error
-      );
-
-      const message =
-        error?.message ||
-        "Unable to logout.";
-
-      if (Platform.OS === "web") {
-        window.alert(message);
-      } else {
-        Alert.alert(
-          "Logout Failed",
-          message
+        console.log(
+          "LOGOUT SUCCESS"
         );
+
+        router.replace(
+          "/login"
+        );
+      } catch (error: any) {
+        console.error(
+          "LOGOUT ERROR:",
+          error
+        );
+
+        showMessage(
+          "Logout Failed",
+          error?.message ||
+          "Unable to logout."
+        );
+      } finally {
+        setLoggingOut(false);
       }
-    } finally {
-      setLoggingOut(false);
+    };
+
+  const handleLogout = () => {
+    if (loggingOut) {
+      return;
     }
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        window.confirm(
+          "Are you sure you want to log out?"
+        );
+
+      if (confirmed) {
+        performLogout();
+      }
+
+      return;
+    }
+
+    Alert.alert(
+      "Log Out",
+      "Are you sure you want to log out?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+
+        {
+          text: "Log Out",
+          style: "destructive",
+          onPress: performLogout,
+        },
+      ]
+    );
   };
 
   // ============================================
-  // COMING SOON
+  // EDIT HERO PLACEHOLDER
   // ============================================
 
-  const showComingSoon = (
-    feature: string
-  ) => {
-    const message =
-      `${feature} will be added soon.`;
-
-    if (Platform.OS === "web") {
-      window.alert(message);
-    } else {
-      Alert.alert(
-        "Coming Soon",
-        message
-      );
-    }
+  const handleEditHero = () => {
+    router.push("/edit-hero");
   };
 
   // ============================================
@@ -196,40 +285,76 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingScreen}>
+      <View
+        style={
+          styles.loadingScreen
+        }
+      >
         <ActivityIndicator
           size="large"
           color="#7C3AED"
         />
 
-        <Text style={styles.loadingText}>
+        <Text
+          style={
+            styles.loadingText
+          }
+        >
           Loading profile...
         </Text>
       </View>
     );
   }
 
+  // ============================================
+  // PROFILE NOT FOUND
+  // ============================================
+
   if (!hero) {
     return (
-      <View style={styles.loadingScreen}>
-        <Text style={styles.errorEmoji}>
+      <View
+        style={
+          styles.loadingScreen
+        }
+      >
+        <Text
+          style={
+            styles.errorEmoji
+          }
+        >
           ⚠️
         </Text>
 
-        <Text style={styles.errorTitle}>
+        <Text
+          style={
+            styles.errorTitle
+          }
+        >
           Profile not found
         </Text>
 
-        <Text style={styles.errorText}>
-          Your hero profile could not be
-          loaded.
+        <Text
+          style={
+            styles.errorText
+          }
+        >
+          Your hero profile could
+          not be loaded.
         </Text>
 
         <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
+          style={
+            styles.logoutButton
+          }
+          onPress={
+            handleLogout
+          }
         >
-          <Text style={styles.logoutText}>
+          <Text
+            style={
+              styles.logoutText
+            }
+          >
             Return to Login
           </Text>
         </TouchableOpacity>
@@ -246,17 +371,34 @@ export default function ProfileScreen() {
     classInfo.warrior;
 
   const completedCount =
-    hero.completedQuests.length;
+    hero.totalQuestsCompleted;
+
+  const achievementCount =
+    hero.unlockedAchievements?.length ?? 0;
 
   const xpNeeded = 100;
 
-  const xpProgress = Math.min(
-    (hero.xp / xpNeeded) * 100,
-    100
-  );
+  const xpProgress =
+    Math.min(
+      (hero.xp / xpNeeded) *
+      100,
+      100
+    );
+
+  const remainingXP =
+    Math.max(
+      xpNeeded - hero.xp,
+      0
+    );
+
+  // ============================================
+  // UI
+  // ============================================
 
   return (
-    <View style={styles.screen}>
+    <View
+      style={styles.screen}
+    >
       <ScrollView
         contentContainerStyle={
           styles.container
@@ -267,99 +409,188 @@ export default function ProfileScreen() {
       >
         {/* HEADER */}
 
-        <Text style={styles.eyebrow}>
+        <Text
+          style={styles.eyebrow}
+        >
           PLAYER PROFILE
         </Text>
 
-        <Text style={styles.title}>
+        <Text
+          style={styles.title}
+        >
           👤 Profile
         </Text>
 
-        <Text style={styles.subtitle}>
-          Manage your hero and account.
+        <Text
+          style={styles.subtitle}
+        >
+          Manage your hero and
+          account.
         </Text>
 
         {/* PROFILE CARD */}
 
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
+        <View
+          style={
+            styles.profileCard
+          }
+        >
+          <View
+            style={styles.avatar}
+          >
             <Text
-              style={styles.avatarEmoji}
+              style={
+                styles.avatarEmoji
+              }
             >
               {currentClass.emoji}
             </Text>
           </View>
 
-          <Text style={styles.heroName}>
+          <Text
+            style={
+              styles.heroName
+            }
+          >
             {hero.heroName}
           </Text>
 
-          <Text style={styles.heroClass}>
+          <Text
+            style={
+              styles.heroClass
+            }
+          >
             Level {hero.level} •{" "}
             {currentClass.title}
           </Text>
 
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelText}>
+          <View
+            style={
+              styles.levelBadge
+            }
+          >
+            <Text
+              style={
+                styles.levelText
+              }
+            >
               LVL {hero.level}
             </Text>
           </View>
 
           {/* XP */}
 
-          <View style={styles.xpSection}>
-            <View style={styles.xpHeader}>
-              <Text style={styles.xpLabel}>
+          <View
+            style={
+              styles.xpSection
+            }
+          >
+            <View
+              style={
+                styles.xpHeader
+              }
+            >
+              <Text
+                style={
+                  styles.xpLabel
+                }
+              >
                 EXPERIENCE
               </Text>
 
-              <Text style={styles.xpValue}>
-                {hero.xp} / {xpNeeded} XP
+              <Text
+                style={
+                  styles.xpValue
+                }
+              >
+                {hero.xp} /{" "}
+                {xpNeeded} XP
               </Text>
             </View>
 
             <View
-              style={styles.progressTrack}
+              style={
+                styles.progressTrack
+              }
             >
               <View
                 style={[
                   styles.progressFill,
+
                   {
-                    width: `${xpProgress}%`,
+                    width:
+                      `${xpProgress}%`,
                   },
                 ]}
               />
             </View>
+
+            <Text
+              style={
+                styles.nextLevel
+              }
+            >
+              {remainingXP > 0
+                ? `${remainingXP} XP until Level ${hero.level + 1
+                }`
+                : "Ready to level up!"}
+            </Text>
           </View>
         </View>
 
         {/* ACCOUNT */}
 
-        <Text style={styles.sectionTitle}>
+        <Text
+          style={
+            styles.sectionTitle
+          }
+        >
           Account
         </Text>
 
-        <View style={styles.sectionCard}>
-          <View style={styles.infoRow}>
-            <View style={styles.infoIcon}>
+        <View
+          style={
+            styles.sectionCard
+          }
+        >
+          {/* EMAIL */}
+
+          <View
+            style={
+              styles.infoRow
+            }
+          >
+            <View
+              style={
+                styles.infoIcon
+              }
+            >
               <Text
-                style={styles.infoEmoji}
+                style={
+                  styles.infoEmoji
+                }
               >
                 ✉️
               </Text>
             </View>
 
             <View
-              style={styles.infoContent}
+              style={
+                styles.infoContent
+              }
             >
               <Text
-                style={styles.infoLabel}
+                style={
+                  styles.infoLabel
+                }
               >
                 EMAIL
               </Text>
 
               <Text
-                style={styles.infoValue}
+                style={
+                  styles.infoValue
+                }
                 numberOfLines={1}
               >
                 {hero.email}
@@ -367,57 +598,105 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <View style={styles.divider} />
+          <View
+            style={
+              styles.divider
+            }
+          />
 
-          <View style={styles.infoRow}>
-            <View style={styles.infoIcon}>
+          {/* HERO CLASS */}
+
+          <View
+            style={
+              styles.infoRow
+            }
+          >
+            <View
+              style={
+                styles.infoIcon
+              }
+            >
               <Text
-                style={styles.infoEmoji}
+                style={
+                  styles.infoEmoji
+                }
               >
                 ⚔️
               </Text>
             </View>
 
             <View
-              style={styles.infoContent}
+              style={
+                styles.infoContent
+              }
             >
               <Text
-                style={styles.infoLabel}
+                style={
+                  styles.infoLabel
+                }
               >
                 HERO CLASS
               </Text>
 
               <Text
-                style={styles.infoValue}
+                style={
+                  styles.infoValue
+                }
               >
-                {currentClass.emoji}{" "}
-                {currentClass.title}
+                {
+                  currentClass.emoji
+                }{" "}
+                {
+                  currentClass.title
+                }
               </Text>
             </View>
           </View>
 
-          <View style={styles.divider} />
+          <View
+            style={
+              styles.divider
+            }
+          />
 
-          <View style={styles.infoRow}>
-            <View style={styles.infoIcon}>
+          {/* STATUS */}
+
+          <View
+            style={
+              styles.infoRow
+            }
+          >
+            <View
+              style={
+                styles.infoIcon
+              }
+            >
               <Text
-                style={styles.infoEmoji}
+                style={
+                  styles.infoEmoji
+                }
               >
                 🆔
               </Text>
             </View>
 
             <View
-              style={styles.infoContent}
+              style={
+                styles.infoContent
+              }
             >
               <Text
-                style={styles.infoLabel}
+                style={
+                  styles.infoLabel
+                }
               >
                 ACCOUNT STATUS
               </Text>
 
               <Text
-                style={styles.activeText}
+                style={
+                  styles.activeText
+                }
               >
                 ● Active
               </Text>
@@ -427,103 +706,244 @@ export default function ProfileScreen() {
 
         {/* HERO PROGRESS */}
 
-        <Text style={styles.sectionTitle}>
-          Hero Progress
-        </Text>
+        <View
+          style={
+            styles.sectionHeader
+          }
+        >
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Hero Progress
+          </Text>
 
-        <View style={styles.statsCard}>
-          <View style={styles.statItem}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() =>
+              router.push(
+                "/character"
+              )
+            }
+          >
             <Text
-              style={styles.statEmoji}
+              style={
+                styles.viewLink
+              }
+            >
+              View Hero →
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View
+          style={
+            styles.statsCard
+          }
+        >
+          <View
+            style={
+              styles.statItem
+            }
+          >
+            <Text
+              style={
+                styles.statEmoji
+              }
             >
               ⭐
             </Text>
 
             <Text
-              style={styles.statValue}
+              style={
+                styles.statValue
+              }
             >
               {hero.totalXP}
             </Text>
 
             <Text
-              style={styles.statLabel}
+              style={
+                styles.statLabel
+              }
             >
               Total XP
             </Text>
           </View>
 
           <View
-            style={styles.verticalDivider}
+            style={
+              styles.verticalDivider
+            }
           />
 
-          <View style={styles.statItem}>
+          <View
+            style={
+              styles.statItem
+            }
+          >
             <Text
-              style={styles.statEmoji}
+              style={
+                styles.statEmoji
+              }
             >
               ⚔️
             </Text>
 
             <Text
-              style={styles.statValue}
+              style={
+                styles.statValue
+              }
             >
               {completedCount}
             </Text>
 
             <Text
-              style={styles.statLabel}
+              style={
+                styles.statLabel
+              }
             >
               Quests
             </Text>
           </View>
 
           <View
-            style={styles.verticalDivider}
+            style={
+              styles.verticalDivider
+            }
           />
 
-          <View style={styles.statItem}>
+          <View
+            style={
+              styles.statItem
+            }
+          >
             <Text
-              style={styles.statEmoji}
+              style={
+                styles.statEmoji
+              }
             >
               🔥
             </Text>
 
             <Text
-              style={styles.statValue}
+              style={
+                styles.statValue
+              }
             >
               {hero.streak}
             </Text>
 
             <Text
-              style={styles.statLabel}
+              style={
+                styles.statLabel
+              }
             >
               Streak
             </Text>
           </View>
         </View>
 
+        {/* ACHIEVEMENT SUMMARY */}
+
+        <View
+          style={
+            styles.achievementSummary
+          }
+        >
+          <View
+            style={
+              styles.achievementSummaryIcon
+            }
+          >
+            <Text
+              style={
+                styles.achievementSummaryEmoji
+              }
+            >
+              🏆
+            </Text>
+          </View>
+
+          <View
+            style={
+              styles.achievementSummaryInfo
+            }
+          >
+            <Text
+              style={
+                styles.achievementSummaryLabel
+              }
+            >
+              ACHIEVEMENTS
+            </Text>
+
+            <Text
+              style={
+                styles.achievementSummaryValue
+              }
+            >
+              {achievementCount}{" "}
+              unlocked
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() =>
+              router.push(
+                "/character"
+              )
+            }
+          >
+            <Text
+              style={
+                styles.summaryArrow
+              }
+            >
+              ›
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* SETTINGS */}
 
-        <Text style={styles.sectionTitle}>
+        <Text
+          style={
+            styles.sectionTitle
+          }
+        >
           Settings
         </Text>
 
-        <View style={styles.sectionCard}>
+        <View
+          style={
+            styles.sectionCard
+          }
+        >
+          {/* EDIT HERO */}
+
           <TouchableOpacity
-            style={styles.settingRow}
+            style={
+              styles.settingRow
+            }
             activeOpacity={0.7}
-            onPress={() =>
-              showComingSoon("Edit Hero")
+            onPress={
+              handleEditHero
             }
           >
             <View
-              style={styles.settingLeft}
+              style={
+                styles.settingLeft
+              }
             >
               <Text
                 style={
                   styles.settingEmoji
                 }
               >
-                ⚔️
+                ✏️
               </Text>
 
               <View>
@@ -540,29 +960,44 @@ export default function ProfileScreen() {
                     styles.settingSubtext
                   }
                 >
-                  Change hero details
+                  Change hero name
+                  and class
                 </Text>
               </View>
             </View>
 
-            <Text style={styles.arrow}>
+            <Text
+              style={
+                styles.arrow
+              }
+            >
               ›
             </Text>
           </TouchableOpacity>
 
-          <View style={styles.divider} />
+          <View
+            style={
+              styles.divider
+            }
+          />
+
+          {/* ACHIEVEMENTS */}
 
           <TouchableOpacity
-            style={styles.settingRow}
+            style={
+              styles.settingRow
+            }
             activeOpacity={0.7}
             onPress={() =>
-              showComingSoon(
-                "Achievements"
+              router.push(
+                "/character"
               )
             }
           >
             <View
-              style={styles.settingLeft}
+              style={
+                styles.settingLeft
+              }
             >
               <Text
                 style={
@@ -586,36 +1021,53 @@ export default function ProfileScreen() {
                     styles.settingSubtext
                   }
                 >
-                  View unlocked rewards
+                  {
+                    achievementCount
+                  }{" "}
+                  rewards unlocked
                 </Text>
               </View>
             </View>
 
-            <Text style={styles.arrow}>
+            <Text
+              style={
+                styles.arrow
+              }
+            >
               ›
             </Text>
           </TouchableOpacity>
 
-          <View style={styles.divider} />
+          <View
+            style={
+              styles.divider
+            }
+          />
+
+          {/* QUEST HISTORY */}
 
           <TouchableOpacity
-            style={styles.settingRow}
+            style={
+              styles.settingRow
+            }
             activeOpacity={0.7}
             onPress={() =>
-              showComingSoon(
-                "App Settings"
+              router.push(
+                "/history"
               )
             }
           >
             <View
-              style={styles.settingLeft}
+              style={
+                styles.settingLeft
+              }
             >
               <Text
                 style={
                   styles.settingEmoji
                 }
               >
-                ⚙️
+                📖
               </Text>
 
               <View>
@@ -624,7 +1076,7 @@ export default function ProfileScreen() {
                     styles.settingText
                   }
                 >
-                  App Settings
+                  Quest History
                 </Text>
 
                 <Text
@@ -632,12 +1084,17 @@ export default function ProfileScreen() {
                     styles.settingSubtext
                   }
                 >
-                  Preferences and options
+                  View completed
+                  adventures
                 </Text>
               </View>
             </View>
 
-            <Text style={styles.arrow}>
+            <Text
+              style={
+                styles.arrow
+              }
+            >
               ›
             </Text>
           </TouchableOpacity>
@@ -648,6 +1105,7 @@ export default function ProfileScreen() {
         <TouchableOpacity
           style={[
             styles.logoutButton,
+
             loggingOut &&
             styles.logoutDisabled,
           ]}
@@ -663,7 +1121,9 @@ export default function ProfileScreen() {
               />
 
               <Text
-                style={styles.logoutText}
+                style={
+                  styles.logoutText
+                }
               >
                 Logging Out...
               </Text>
@@ -671,13 +1131,17 @@ export default function ProfileScreen() {
           ) : (
             <>
               <Text
-                style={styles.logoutIcon}
+                style={
+                  styles.logoutIcon
+                }
               >
                 🚪
               </Text>
 
               <Text
-                style={styles.logoutText}
+                style={
+                  styles.logoutText
+                }
               >
                 Log Out
               </Text>
@@ -685,344 +1149,450 @@ export default function ProfileScreen() {
           )}
         </TouchableOpacity>
 
-        <Text style={styles.version}>
-          REAL-LIFE RPG • VERSION 1.0
+        <Text
+          style={
+            styles.version
+          }
+        >
+          REAL-LIFE RPG • VERSION
+          1.0
         </Text>
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#0F172A",
-  },
+// ============================================
+// STYLES
+// ============================================
 
-  loadingScreen: {
-    flex: 1,
-    backgroundColor: "#0F172A",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 30,
-  },
+const styles =
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor:
+        "#0F172A",
+    },
 
-  loadingText: {
-    color: "#94A3B8",
-    fontSize: 13,
-    marginTop: 15,
-  },
+    loadingScreen: {
+      flex: 1,
+      backgroundColor:
+        "#0F172A",
+      justifyContent:
+        "center",
+      alignItems: "center",
+      padding: 30,
+    },
 
-  errorEmoji: {
-    fontSize: 40,
-    marginBottom: 12,
-  },
+    loadingText: {
+      color: "#94A3B8",
+      fontSize: 13,
+      marginTop: 15,
+    },
 
-  errorTitle: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
+    errorEmoji: {
+      fontSize: 40,
+      marginBottom: 12,
+    },
 
-  errorText: {
-    color: "#94A3B8",
-    fontSize: 12,
-    textAlign: "center",
-    marginBottom: 20,
-  },
+    errorTitle: {
+      color: "#FFFFFF",
+      fontSize: 20,
+      fontWeight: "900",
+      marginBottom: 8,
+    },
 
-  container: {
-    padding: 20,
-    paddingTop: 55,
-    paddingBottom: 50,
-  },
+    errorText: {
+      color: "#94A3B8",
+      fontSize: 12,
+      textAlign: "center",
+      marginBottom: 20,
+    },
 
-  eyebrow: {
-    color: "#A78BFA",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 2,
-    marginBottom: 7,
-  },
+    container: {
+      padding: 20,
+      paddingTop: 55,
+      paddingBottom: 50,
+    },
 
-  title: {
-    color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "900",
-    marginBottom: 7,
-  },
+    eyebrow: {
+      color: "#A78BFA",
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 2,
+      marginBottom: 7,
+    },
 
-  subtitle: {
-    color: "#94A3B8",
-    fontSize: 13,
-    marginBottom: 24,
-  },
+    title: {
+      color: "#FFFFFF",
+      fontSize: 28,
+      fontWeight: "900",
+      marginBottom: 7,
+    },
 
-  profileCard: {
-    backgroundColor: "#1E293B",
-    borderRadius: 22,
-    padding: 22,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#334155",
-    marginBottom: 28,
-  },
+    subtitle: {
+      color: "#94A3B8",
+      fontSize: 13,
+      marginBottom: 24,
+    },
 
-  avatar: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    backgroundColor: "#312E81",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#7C3AED",
-    marginBottom: 12,
-  },
+    profileCard: {
+      backgroundColor:
+        "#1E293B",
+      borderRadius: 22,
+      padding: 22,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor:
+        "#334155",
+      marginBottom: 28,
+    },
 
-  avatarEmoji: {
-    fontSize: 40,
-  },
+    avatar: {
+      width: 82,
+      height: 82,
+      borderRadius: 41,
+      backgroundColor:
+        "#312E81",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      borderWidth: 2,
+      borderColor:
+        "#7C3AED",
+      marginBottom: 12,
+    },
 
-  heroName: {
-    color: "#FFFFFF",
-    fontSize: 23,
-    fontWeight: "900",
-  },
+    avatarEmoji: {
+      fontSize: 40,
+    },
 
-  heroClass: {
-    color: "#94A3B8",
-    fontSize: 12,
-    marginTop: 5,
-  },
+    heroName: {
+      color: "#FFFFFF",
+      fontSize: 23,
+      fontWeight: "900",
+    },
 
-  levelBadge: {
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 12,
-  },
+    heroClass: {
+      color: "#94A3B8",
+      fontSize: 12,
+      marginTop: 5,
+    },
 
-  levelText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "900",
-  },
+    levelBadge: {
+      backgroundColor:
+        "#7C3AED",
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      marginTop: 12,
+    },
 
-  xpSection: {
-    width: "100%",
-    marginTop: 20,
-  },
+    levelText: {
+      color: "#FFFFFF",
+      fontSize: 10,
+      fontWeight: "900",
+    },
 
-  xpHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
+    xpSection: {
+      width: "100%",
+      marginTop: 20,
+    },
 
-  xpLabel: {
-    color: "#94A3B8",
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
+    xpHeader: {
+      flexDirection: "row",
+      justifyContent:
+        "space-between",
+      marginBottom: 8,
+    },
 
-  xpValue: {
-    color: "#A78BFA",
-    fontSize: 10,
-    fontWeight: "800",
-  },
+    xpLabel: {
+      color: "#94A3B8",
+      fontSize: 9,
+      fontWeight: "800",
+      letterSpacing: 1,
+    },
 
-  progressTrack: {
-    width: "100%",
-    height: 8,
-    backgroundColor: "#334155",
-    borderRadius: 10,
-    overflow: "hidden",
-  },
+    xpValue: {
+      color: "#A78BFA",
+      fontSize: 10,
+      fontWeight: "800",
+    },
 
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#7C3AED",
-    borderRadius: 10,
-  },
+    progressTrack: {
+      width: "100%",
+      height: 8,
+      backgroundColor:
+        "#334155",
+      borderRadius: 10,
+      overflow: "hidden",
+    },
 
-  sectionTitle: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 12,
-  },
+    progressFill: {
+      height: "100%",
+      backgroundColor:
+        "#7C3AED",
+      borderRadius: 10,
+    },
 
-  sectionCard: {
-    backgroundColor: "#1E293B",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#334155",
-    paddingHorizontal: 15,
-    marginBottom: 27,
-  },
+    nextLevel: {
+      color: "#64748B",
+      fontSize: 9,
+      marginTop: 8,
+    },
 
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 15,
-  },
+    sectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+    },
 
-  infoIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: "#0F172A",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
+    sectionTitle: {
+      color: "#FFFFFF",
+      fontSize: 18,
+      fontWeight: "800",
+      marginBottom: 12,
+    },
 
-  infoEmoji: {
-    fontSize: 19,
-  },
+    viewLink: {
+      color: "#A78BFA",
+      fontSize: 10,
+      fontWeight: "800",
+      marginBottom: 12,
+    },
 
-  infoContent: {
-    flex: 1,
-  },
+    sectionCard: {
+      backgroundColor:
+        "#1E293B",
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor:
+        "#334155",
+      paddingHorizontal: 15,
+      marginBottom: 27,
+    },
 
-  infoLabel: {
-    color: "#64748B",
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
+    infoRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 15,
+    },
 
-  infoValue: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "600",
-  },
+    infoIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: 12,
+      backgroundColor:
+        "#0F172A",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      marginRight: 12,
+    },
 
-  activeText: {
-    color: "#22C55E",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+    infoEmoji: {
+      fontSize: 19,
+    },
 
-  divider: {
-    height: 1,
-    backgroundColor: "#334155",
-  },
+    infoContent: {
+      flex: 1,
+    },
 
-  statsCard: {
-    backgroundColor: "#1E293B",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#334155",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 18,
-    marginBottom: 27,
-  },
+    infoLabel: {
+      color: "#64748B",
+      fontSize: 9,
+      fontWeight: "700",
+      letterSpacing: 1,
+      marginBottom: 4,
+    },
 
-  statItem: {
-    flex: 1,
-    alignItems: "center",
-  },
+    infoValue: {
+      color: "#FFFFFF",
+      fontSize: 12,
+      fontWeight: "600",
+    },
 
-  statEmoji: {
-    fontSize: 20,
-    marginBottom: 5,
-  },
+    activeText: {
+      color: "#22C55E",
+      fontSize: 12,
+      fontWeight: "700",
+    },
 
-  statValue: {
-    color: "#FFFFFF",
-    fontSize: 19,
-    fontWeight: "900",
-  },
+    divider: {
+      height: 1,
+      backgroundColor:
+        "#334155",
+    },
 
-  statLabel: {
-    color: "#94A3B8",
-    fontSize: 9,
-    marginTop: 4,
-  },
+    statsCard: {
+      backgroundColor:
+        "#1E293B",
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor:
+        "#334155",
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 18,
+      marginBottom: 13,
+    },
 
-  verticalDivider: {
-    width: 1,
-    height: 38,
-    backgroundColor: "#334155",
-  },
+    statItem: {
+      flex: 1,
+      alignItems: "center",
+    },
 
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 15,
-  },
+    statEmoji: {
+      fontSize: 20,
+      marginBottom: 5,
+    },
 
-  settingLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
+    statValue: {
+      color: "#FFFFFF",
+      fontSize: 19,
+      fontWeight: "900",
+    },
 
-  settingEmoji: {
-    fontSize: 19,
-    marginRight: 12,
-  },
+    statLabel: {
+      color: "#94A3B8",
+      fontSize: 9,
+      marginTop: 4,
+    },
 
-  settingText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
+    verticalDivider: {
+      width: 1,
+      height: 38,
+      backgroundColor:
+        "#334155",
+    },
 
-  settingSubtext: {
-    color: "#64748B",
-    fontSize: 9,
-    marginTop: 3,
-  },
+    achievementSummary: {
+      backgroundColor:
+        "#312E81",
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor:
+        "#4C1D95",
+      padding: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 27,
+    },
 
-  arrow: {
-    color: "#64748B",
-    fontSize: 24,
-    fontWeight: "300",
-  },
+    achievementSummaryIcon: {
+      width: 43,
+      height: 43,
+      borderRadius: 13,
+      backgroundColor:
+        "#1E1B4B",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      marginRight: 12,
+    },
 
-  logoutButton: {
-    backgroundColor: "#3F1D2E",
-    borderWidth: 1,
-    borderColor: "#7F1D1D",
-    borderRadius: 16,
-    minHeight: 54,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    marginTop: 3,
-    paddingHorizontal: 15,
-  },
+    achievementSummaryEmoji: {
+      fontSize: 21,
+    },
 
-  logoutDisabled: {
-    opacity: 0.6,
-  },
+    achievementSummaryInfo: {
+      flex: 1,
+    },
 
-  logoutIcon: {
-    fontSize: 17,
-  },
+    achievementSummaryLabel: {
+      color: "#A78BFA",
+      fontSize: 8,
+      fontWeight: "900",
+      letterSpacing: 1,
+    },
 
-  logoutText: {
-    color: "#FCA5A5",
-    fontSize: 14,
-    fontWeight: "800",
-  },
+    achievementSummaryValue: {
+      color: "#FFFFFF",
+      fontSize: 13,
+      fontWeight: "800",
+      marginTop: 4,
+    },
 
-  version: {
-    color: "#475569",
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textAlign: "center",
-    marginTop: 22,
-  },
-});
+    summaryArrow: {
+      color: "#C4B5FD",
+      fontSize: 25,
+    },
+
+    settingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+      paddingVertical: 15,
+    },
+
+    settingLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+    },
+
+    settingEmoji: {
+      fontSize: 19,
+      marginRight: 12,
+    },
+
+    settingText: {
+      color: "#FFFFFF",
+      fontSize: 13,
+      fontWeight: "700",
+    },
+
+    settingSubtext: {
+      color: "#64748B",
+      fontSize: 9,
+      marginTop: 3,
+    },
+
+    arrow: {
+      color: "#64748B",
+      fontSize: 24,
+      fontWeight: "300",
+    },
+
+    logoutButton: {
+      backgroundColor:
+        "#3F1D2E",
+      borderWidth: 1,
+      borderColor:
+        "#7F1D1D",
+      borderRadius: 16,
+      minHeight: 54,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      gap: 8,
+      marginTop: 3,
+      paddingHorizontal: 15,
+    },
+
+    logoutDisabled: {
+      opacity: 0.6,
+    },
+
+    logoutIcon: {
+      fontSize: 17,
+    },
+
+    logoutText: {
+      color: "#FCA5A5",
+      fontSize: 14,
+      fontWeight: "800",
+    },
+
+    version: {
+      color: "#475569",
+      fontSize: 9,
+      fontWeight: "700",
+      letterSpacing: 1.5,
+      textAlign: "center",
+      marginTop: 22,
+    },
+  });

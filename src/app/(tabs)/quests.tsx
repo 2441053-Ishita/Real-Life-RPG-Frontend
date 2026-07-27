@@ -40,6 +40,71 @@ type Quest = {
   custom?: boolean;
 };
 
+type AchievementInfo = {
+  id: string;
+  emoji: string;
+  title: string;
+  description: string;
+};
+
+// ============================================
+// ACHIEVEMENTS
+// ============================================
+
+const ACHIEVEMENT_INFO: Record<
+  string,
+  AchievementInfo
+> = {
+  "first-step": {
+    id: "first-step",
+    emoji: "🌱",
+    title: "First Step",
+    description: "Complete your first quest",
+  },
+
+  "rising-hero": {
+    id: "rising-hero",
+    emoji: "⭐",
+    title: "Rising Hero",
+    description: "Earn 100 total XP",
+  },
+
+  "quest-master": {
+    id: "quest-master",
+    emoji: "⚔️",
+    title: "Quest Master",
+    description: "Complete 25 quests",
+  },
+
+  "streak-3": {
+    id: "streak-3",
+    emoji: "🥉",
+    title: "3-Day Warrior",
+    description: "Reach a 3 day streak",
+  },
+
+  "streak-7": {
+    id: "streak-7",
+    emoji: "🥈",
+    title: "7-Day Champion",
+    description: "Reach a 7 day streak",
+  },
+
+  "streak-14": {
+    id: "streak-14",
+    emoji: "🥇",
+    title: "14-Day Master",
+    description: "Reach a 14 day streak",
+  },
+
+  "streak-30": {
+    id: "streak-30",
+    emoji: "👑",
+    title: "30-Day Legend",
+    description: "Reach a 30 day streak",
+  },
+};
+
 // ============================================
 // DAILY QUESTS
 // ============================================
@@ -49,35 +114,34 @@ const DAILY_QUESTS: Quest[] = [
     id: "daily-1",
     emoji: "💪",
     title: "Morning Workout",
-    description:
-      "Exercise for at least 30 minutes",
+    description: "Exercise for at least 30 minutes",
     xp: 20,
     difficulty: "Medium",
   },
+
   {
     id: "daily-2",
     emoji: "📚",
     title: "Study Session",
-    description:
-      "Focus and study for 1 hour",
+    description: "Focus and study for 1 hour",
     xp: 30,
     difficulty: "Hard",
   },
+
   {
     id: "daily-3",
     emoji: "💧",
     title: "Stay Hydrated",
-    description:
-      "Drink enough water throughout the day",
+    description: "Drink enough water throughout the day",
     xp: 10,
     difficulty: "Easy",
   },
+
   {
     id: "daily-4",
     emoji: "🧘",
     title: "Mindfulness",
-    description:
-      "Meditate or reflect for 10 minutes",
+    description: "Meditate or reflect for 10 minutes",
     xp: 15,
     difficulty: "Easy",
   },
@@ -110,8 +174,7 @@ const getYesterdayKey = () => {
     yesterday.getDate() - 1
   );
 
-  const year =
-    yesterday.getFullYear();
+  const year = yesterday.getFullYear();
 
   const month = String(
     yesterday.getMonth() + 1
@@ -159,7 +222,27 @@ export default function QuestsScreen() {
   ] = useState<string | null>(null);
 
   // ============================================
-  // AUTOMATIC DAILY RESET
+  // MESSAGE HELPER
+  // ============================================
+
+  const showMessage = (
+    title: string,
+    message: string
+  ) => {
+    if (Platform.OS === "web") {
+      window.alert(
+        `${title}\n\n${message}`
+      );
+    } else {
+      Alert.alert(
+        title,
+        message
+      );
+    }
+  };
+
+  // ============================================
+  // AUTOMATIC DAILY RESET + STREAK CHECK
   // ============================================
 
   useEffect(() => {
@@ -180,9 +263,13 @@ export default function QuestsScreen() {
         const today =
           getTodayKey();
 
+        const yesterday =
+          getYesterdayKey();
+
         try {
           await runTransaction(
             db,
+
             async (transaction) => {
               const snapshot =
                 await transaction.get(
@@ -199,38 +286,61 @@ export default function QuestsScreen() {
               const storedQuestDate =
                 data.questDate || "";
 
-              // Already today's quest state
+              const lastActiveDate =
+                data.lastActiveDate || "";
+
+              const currentStreak =
+                data.streak ?? 0;
+
+              const updates:
+                Record<string, any> = {};
+
+              // DAILY RESET
+
               if (
-                storedQuestDate ===
-                today
+                storedQuestDate !== today
               ) {
-                return;
+                updates.completedQuests =
+                  [];
+
+                updates.questDate =
+                  today;
               }
 
-              // Reset only daily completion
-              // state. Permanent stats remain.
-              transaction.update(
-                userRef,
-                {
-                  completedQuests:
-                    [],
+              // STREAK RESET
 
-                  questDate:
-                    today,
+              const streakExpired =
+                lastActiveDate !== today &&
+                lastActiveDate !== yesterday;
 
-                  updatedAt:
-                    serverTimestamp(),
-                }
-              );
+              if (
+                streakExpired &&
+                currentStreak !== 0
+              ) {
+                updates.streak = 0;
+              }
+
+              if (
+                Object.keys(updates)
+                  .length > 0
+              ) {
+                updates.updatedAt =
+                  serverTimestamp();
+
+                transaction.update(
+                  userRef,
+                  updates
+                );
+              }
             }
           );
 
           console.log(
-            "DAILY QUEST RESET CHECK COMPLETE"
+            "DAILY QUEST + STREAK CHECK COMPLETE"
           );
         } catch (error) {
           console.error(
-            "DAILY QUEST RESET ERROR:",
+            "DAILY QUEST / STREAK RESET ERROR:",
             error
           );
         }
@@ -248,7 +358,11 @@ export default function QuestsScreen() {
 
     if (!user) {
       setLoading(false);
-      router.replace("/login");
+
+      router.replace(
+        "/login"
+      );
+
       return;
     }
 
@@ -273,8 +387,7 @@ export default function QuestsScreen() {
               getTodayKey();
 
             const storedDate =
-              data.questDate ||
-              "";
+              data.questDate || "";
 
             if (
               storedDate === today
@@ -353,6 +466,7 @@ export default function QuestsScreen() {
     const customQuestQuery =
       query(
         customQuestRef,
+
         where(
           "active",
           "==",
@@ -375,7 +489,8 @@ export default function QuestsScreen() {
                   questDocument.data();
 
                 return {
-                  id: `custom-${questDocument.id}`,
+                  id:
+                    `custom-${questDocument.id}`,
 
                   emoji:
                     data.emoji ||
@@ -437,19 +552,10 @@ export default function QuestsScreen() {
         auth.currentUser;
 
       if (!user) {
-        if (
-          Platform.OS ===
-          "web"
-        ) {
-          window.alert(
-            "Please sign in again."
-          );
-        } else {
-          Alert.alert(
-            "Session Error",
-            "Please sign in again."
-          );
-        }
+        showMessage(
+          "Session Error",
+          "Please sign in again."
+        );
 
         router.replace(
           "/login"
@@ -483,223 +589,376 @@ export default function QuestsScreen() {
         const yesterday =
           getYesterdayKey();
 
-        await runTransaction(
-          db,
+        // ======================================
+        // TRANSACTION RETURNS NEW ACHIEVEMENTS
+        // ======================================
 
-          async (
-            transaction
-          ) => {
-            const snapshot =
-              await transaction.get(
-                userRef
-              );
+        const result =
+          await runTransaction(
+            db,
 
-            if (
-              !snapshot.exists()
-            ) {
-              throw new Error(
-                "Hero profile not found."
-              );
-            }
-
-            const data =
-              snapshot.data();
-
-            // ==================================
-            // TODAY'S COMPLETED QUESTS
-            // ==================================
-
-            const storedDate =
-              data.questDate ||
-              "";
-
-            let currentCompleted:
-              string[] = [];
-
-            if (
-              storedDate ===
-              today
-            ) {
-              currentCompleted =
-                (
-                  data.completedQuests ||
-                  []
-                ).map(
-                  (
-                    id:
-                      | string
-                      | number
-                  ) =>
-                    String(id)
+            async (
+              transaction
+            ) => {
+              const snapshot =
+                await transaction.get(
+                  userRef
                 );
-            }
 
-            // ==================================
-            // DUPLICATE XP PROTECTION
-            // ==================================
+              if (
+                !snapshot.exists()
+              ) {
+                throw new Error(
+                  "Hero profile not found."
+                );
+              }
 
-            if (
-              currentCompleted.includes(
-                quest.id
-              )
-            ) {
-              return;
-            }
+              const data =
+                snapshot.data();
 
-            const newCompleted =
-              [
+              // ==================================
+              // TODAY'S COMPLETED QUESTS
+              // ==================================
+
+              const storedDate =
+                data.questDate || "";
+
+              let currentCompleted:
+                string[] = [];
+
+              if (
+                storedDate === today
+              ) {
+                currentCompleted =
+                  (
+                    data.completedQuests ||
+                    []
+                  ).map(
+                    (
+                      id:
+                        | string
+                        | number
+                    ) =>
+                      String(id)
+                  );
+              }
+
+              // ==================================
+              // DUPLICATE PROTECTION
+              // ==================================
+
+              if (
+                currentCompleted.includes(
+                  quest.id
+                )
+              ) {
+                return {
+                  completed: false,
+                  newAchievements:
+                    [] as string[],
+                };
+              }
+
+              const newCompleted = [
                 ...currentCompleted,
                 quest.id,
               ];
 
-            // ==================================
-            // XP + LEVEL
-            // ==================================
+              // ==================================
+              // XP + LEVEL
+              // ==================================
 
-            const currentXP =
-              data.xp ?? 0;
+              const currentXP =
+                data.xp ?? 0;
 
-            const currentTotalXP =
-              data.totalXP ??
-              0;
+              const currentTotalXP =
+                data.totalXP ?? 0;
 
-            const currentLevel =
-              data.level ?? 1;
+              const currentLevel =
+                data.level ?? 1;
 
-            let newXP =
-              currentXP +
-              quest.xp;
+              let newXP =
+                currentXP +
+                quest.xp;
 
-            let newLevel =
-              currentLevel;
+              let newLevel =
+                currentLevel;
 
-            // 100 XP = 1 level
-            while (
-              newXP >= 100
-            ) {
-              newXP -= 100;
-
-              newLevel += 1;
-            }
-
-            // ==================================
-            // STREAK
-            // ==================================
-
-            const lastActiveDate =
-              data.lastActiveDate ||
-              "";
-
-            let newStreak =
-              data.streak ?? 0;
-
-            // Only change streak on
-            // first quest of the day.
-            if (
-              lastActiveDate !==
-              today
-            ) {
-              if (
-                lastActiveDate ===
-                yesterday
+              while (
+                newXP >= 100
               ) {
-                newStreak =
-                  (
-                    data.streak ??
-                    0
-                  ) + 1;
-              } else {
-                newStreak = 1;
+                newXP -= 100;
+
+                newLevel += 1;
               }
+
+              const newTotalXP =
+                currentTotalXP +
+                quest.xp;
+
+              // ==================================
+              // LIFETIME QUEST COUNT
+              // ==================================
+
+              const currentQuestCount =
+                data.totalQuestsCompleted ??
+                0;
+
+              const newQuestCount =
+                currentQuestCount +
+                1;
+
+              // ==================================
+              // STREAK
+              // ==================================
+
+              const lastActiveDate =
+                data.lastActiveDate || "";
+
+              let newStreak =
+                data.streak ?? 0;
+
+              if (
+                lastActiveDate !== today
+              ) {
+                if (
+                  lastActiveDate ===
+                  yesterday
+                ) {
+                  newStreak =
+                    (data.streak ??
+                      0) + 1;
+                } else {
+                  newStreak = 1;
+                }
+              }
+
+              // ==================================
+              // SAVED ACHIEVEMENTS
+              // ==================================
+
+              const savedAchievements:
+                string[] =
+                Array.isArray(
+                  data.unlockedAchievements
+                )
+                  ? data.unlockedAchievements.map(
+                    (
+                      id: unknown
+                    ) =>
+                      String(id)
+                  )
+                  : [];
+
+              const savedSet =
+                new Set<string>(
+                  savedAchievements
+                );
+
+              const achievementSet =
+                new Set<string>(
+                  savedAchievements
+                );
+
+              // ==================================
+              // FIRST STEP
+              // ==================================
+
+              achievementSet.add(
+                "first-step"
+              );
+
+              // ==================================
+              // RISING HERO
+              // ==================================
+
+              if (
+                newTotalXP >= 100
+              ) {
+                achievementSet.add(
+                  "rising-hero"
+                );
+              }
+
+              // ==================================
+              // QUEST MASTER
+              // ==================================
+
+              if (
+                newQuestCount >= 25
+              ) {
+                achievementSet.add(
+                  "quest-master"
+                );
+              }
+
+              // ==================================
+              // STREAK MILESTONES
+              // ==================================
+
+              if (
+                newStreak >= 3
+              ) {
+                achievementSet.add(
+                  "streak-3"
+                );
+              }
+
+              if (
+                newStreak >= 7
+              ) {
+                achievementSet.add(
+                  "streak-7"
+                );
+              }
+
+              if (
+                newStreak >= 14
+              ) {
+                achievementSet.add(
+                  "streak-14"
+                );
+              }
+
+              if (
+                newStreak >= 30
+              ) {
+                achievementSet.add(
+                  "streak-30"
+                );
+              }
+
+              const unlockedAchievements =
+                Array.from(
+                  achievementSet
+                );
+
+              // ==================================
+              // FIND ONLY NEW ACHIEVEMENTS
+              // ==================================
+
+              const newAchievements =
+                unlockedAchievements.filter(
+                  (achievementId) =>
+                    !savedSet.has(
+                      achievementId
+                    )
+                );
+
+              // ==================================
+              // UPDATE USER
+              // ==================================
+
+              transaction.update(
+                userRef,
+                {
+                  completedQuests:
+                    newCompleted,
+
+                  questDate:
+                    today,
+
+                  xp:
+                    newXP,
+
+                  totalXP:
+                    newTotalXP,
+
+                  level:
+                    newLevel,
+
+                  totalQuestsCompleted:
+                    newQuestCount,
+
+                  streak:
+                    newStreak,
+
+                  lastActiveDate:
+                    today,
+
+                  unlockedAchievements,
+
+                  updatedAt:
+                    serverTimestamp(),
+                }
+              );
+
+              // ==================================
+              // QUEST HISTORY
+              // ==================================
+
+              const safeQuestId =
+                quest.id.replace(
+                  /[^a-zA-Z0-9_-]/g,
+                  "_"
+                );
+
+              const historyRef =
+                doc(
+                  db,
+                  "users",
+                  user.uid,
+                  "questHistory",
+                  `${today}_${safeQuestId}`
+                );
+
+              transaction.set(
+                historyRef,
+                {
+                  questId:
+                    quest.id,
+
+                  title:
+                    quest.title,
+
+                  description:
+                    quest.description,
+
+                  emoji:
+                    quest.emoji,
+
+                  difficulty:
+                    quest.difficulty,
+
+                  xpEarned:
+                    quest.xp,
+
+                  custom:
+                    quest.custom ??
+                    false,
+
+                  completedDate:
+                    today,
+
+                  completedAt:
+                    serverTimestamp(),
+                }
+              );
+
+              // ==================================
+              // RETURN TRANSACTION RESULT
+              // ==================================
+
+              return {
+                completed: true,
+                newAchievements,
+                newLevel,
+                newStreak,
+                newTotalXP,
+              };
             }
+          );
 
-            // ==================================
-            // UPDATE USER
-            // ==================================
+        // ========================================
+        // DUPLICATE TRANSACTION RESULT
+        // ========================================
 
-            transaction.update(
-              userRef,
-              {
-                completedQuests:
-                  newCompleted,
-
-                questDate:
-                  today,
-
-                xp:
-                  newXP,
-
-                totalXP:
-                  currentTotalXP +
-                  quest.xp,
-
-                level:
-                  newLevel,
-
-                streak:
-                  newStreak,
-
-                lastActiveDate:
-                  today,
-
-                updatedAt:
-                  serverTimestamp(),
-              }
-            );
-
-            // ==================================
-            // QUEST HISTORY
-            // ==================================
-
-            const safeQuestId =
-              quest.id.replace(
-                /[^a-zA-Z0-9_-]/g,
-                "_"
-              );
-
-            const historyRef =
-              doc(
-                db,
-                "users",
-                user.uid,
-                "questHistory",
-                `${today}_${safeQuestId}`
-              );
-
-            transaction.set(
-              historyRef,
-              {
-                questId:
-                  quest.id,
-
-                title:
-                  quest.title,
-
-                description:
-                  quest.description,
-
-                emoji:
-                  quest.emoji,
-
-                difficulty:
-                  quest.difficulty,
-
-                xpEarned:
-                  quest.xp,
-
-                custom:
-                  quest.custom ??
-                  false,
-
-                completedDate:
-                  today,
-
-                completedAt:
-                  serverTimestamp(),
-              }
-            );
-          }
-        );
+        if (
+          !result ||
+          !result.completed
+        ) {
+          return;
+        }
 
         console.log(
           "======================"
@@ -716,6 +975,11 @@ export default function QuestsScreen() {
         );
 
         console.log(
+          "NEW ACHIEVEMENTS:",
+          result.newAchievements
+        );
+
+        console.log(
           "QUEST HISTORY SAVED"
         );
 
@@ -723,17 +987,57 @@ export default function QuestsScreen() {
           "======================"
         );
 
+        // ========================================
+        // ACHIEVEMENT POPUP
+        // ========================================
+
         if (
-          Platform.OS ===
-          "web"
+          result.newAchievements.length >
+          0
         ) {
-          window.alert(
-            `Quest Complete! ⚔️\n\n+${quest.xp} XP`
+          const unlockedDetails =
+            result.newAchievements
+              .map(
+                (
+                  achievementId
+                ) =>
+                  ACHIEVEMENT_INFO[
+                  achievementId
+                  ]
+              )
+              .filter(
+                (
+                  achievement
+                ): achievement is AchievementInfo =>
+                  Boolean(
+                    achievement
+                  )
+              );
+
+          const achievementMessage =
+            unlockedDetails
+              .map(
+                (
+                  achievement
+                ) =>
+                  `${achievement.emoji} ${achievement.title}\n${achievement.description}`
+              )
+              .join(
+                "\n\n"
+              );
+
+          showMessage(
+            "🏆 Achievement Unlocked!",
+            `Quest Complete: ${quest.title}\n+${quest.xp} XP\n\n${achievementMessage}`
           );
         } else {
-          Alert.alert(
+          // ======================================
+          // NORMAL QUEST POPUP
+          // ======================================
+
+          showMessage(
             "Quest Complete! ⚔️",
-            `You earned +${quest.xp} XP`
+            `${quest.title}\n\nYou earned +${quest.xp} XP`
           );
         }
       } catch (
@@ -748,19 +1052,10 @@ export default function QuestsScreen() {
           error?.message ||
           "Unable to complete quest.";
 
-        if (
-          Platform.OS ===
-          "web"
-        ) {
-          window.alert(
-            message
-          );
-        } else {
-          Alert.alert(
-            "Quest Error",
-            message
-          );
-        }
+        showMessage(
+          "Quest Error",
+          message
+        );
       } finally {
         setCompletingId(
           null
@@ -845,8 +1140,6 @@ export default function QuestsScreen() {
           styles.customQuestCard,
         ]}
       >
-        {/* CUSTOM LABEL */}
-
         {quest.custom && (
           <View
             style={
@@ -862,8 +1155,6 @@ export default function QuestsScreen() {
             </Text>
           </View>
         )}
-
-        {/* QUEST TOP */}
 
         <View
           style={styles.questTop}
@@ -905,20 +1196,20 @@ export default function QuestsScreen() {
                 styles.questDescription
               }
             >
-              {
-                quest.description
-              }
+              {quest.description}
             </Text>
           </View>
         </View>
 
-        {/* META */}
-
         <View
-          style={styles.questMeta}
+          style={
+            styles.questMeta
+          }
         >
           <View
-            style={styles.badges}
+            style={
+              styles.badges
+            }
           >
             <View
               style={
@@ -930,9 +1221,7 @@ export default function QuestsScreen() {
                   styles.difficultyText
                 }
               >
-                {
-                  quest.difficulty
-                }
+                {quest.difficulty}
               </Text>
             </View>
 
@@ -950,8 +1239,6 @@ export default function QuestsScreen() {
               </Text>
             </View>
           </View>
-
-          {/* ACTION BUTTONS */}
 
           <View
             style={
@@ -1004,7 +1291,9 @@ export default function QuestsScreen() {
                   quest
                 )
               }
-              activeOpacity={0.75}
+              activeOpacity={
+                0.75
+              }
               style={[
                 styles.completeButton,
 
@@ -1062,8 +1351,7 @@ export default function QuestsScreen() {
             styles.loadingText
           }
         >
-          Loading today's
-          quests...
+          Loading today's quests...
         </Text>
       </View>
     );
@@ -1074,7 +1362,9 @@ export default function QuestsScreen() {
   // ============================================
 
   return (
-    <View style={styles.screen}>
+    <View
+      style={styles.screen}
+    >
       <ScrollView
         contentContainerStyle={
           styles.container
@@ -1104,16 +1394,17 @@ export default function QuestsScreen() {
             style={styles.subtitle}
           >
             Complete real-life
-            missions every day,
-            earn XP and build your
-            streak.
+            missions every day, earn
+            XP and build your streak.
           </Text>
         </View>
 
         {/* STREAK */}
 
         <View
-          style={styles.streakCard}
+          style={
+            styles.streakCard
+          }
         >
           <View>
             <Text
@@ -1213,8 +1504,10 @@ export default function QuestsScreen() {
             <View
               style={[
                 styles.progressFill,
+
                 {
-                  width: `${dailyProgress}%`,
+                  width:
+                    `${dailyProgress}%`,
                 },
               ]}
             />
@@ -1225,18 +1518,16 @@ export default function QuestsScreen() {
               styles.remainingText
             }
           >
-            {remainingDaily ===
-              0
+            {remainingDaily === 0
               ? "All daily quests completed! 🏆"
-              : `${remainingDaily} daily ${remainingDaily ===
-                1
+              : `${remainingDaily} daily ${remainingDaily === 1
                 ? "quest"
                 : "quests"
               } remaining`}
           </Text>
         </View>
 
-        {/* DAILY QUEST TITLE */}
+        {/* DAILY QUESTS */}
 
         <View
           style={
@@ -1257,13 +1548,10 @@ export default function QuestsScreen() {
                 styles.sectionSubtitle
               }
             >
-              Resets every new
-              day
+              Resets every new day
             </Text>
           </View>
         </View>
-
-        {/* DAILY QUESTS */}
 
         {DAILY_QUESTS.map(
           (quest) => (
@@ -1274,7 +1562,7 @@ export default function QuestsScreen() {
           )
         )}
 
-        {/* DAILY VICTORY */}
+        {/* VICTORY */}
 
         {completedDaily.length ===
           DAILY_QUESTS.length && (
@@ -1309,15 +1597,14 @@ export default function QuestsScreen() {
                     styles.victoryText
                   }
                 >
-                  You completed
-                  every daily quest
-                  today.
+                  You completed every
+                  daily quest today.
                 </Text>
               </View>
             </View>
           )}
 
-        {/* CUSTOM QUEST HEADER */}
+        {/* CUSTOM HEADER */}
 
         <View
           style={
@@ -1338,8 +1625,7 @@ export default function QuestsScreen() {
                 styles.sectionSubtitle
               }
             >
-              Your personal
-              missions
+              Your personal missions
             </Text>
           </View>
 
@@ -1347,7 +1633,9 @@ export default function QuestsScreen() {
             style={
               styles.addQuestButton
             }
-            activeOpacity={0.75}
+            activeOpacity={
+              0.75
+            }
             onPress={() =>
               router.push(
                 "/create-quest"
@@ -1395,8 +1683,7 @@ export default function QuestsScreen() {
                 styles.emptyCustomTitle
               }
             >
-              Create your own
-              quest
+              Create your own quest
             </Text>
 
             <Text
@@ -1404,10 +1691,9 @@ export default function QuestsScreen() {
                 styles.emptyCustomText
               }
             >
-              Turn a real-life
-              goal into a mission
-              and earn XP when
-              you complete it.
+              Turn a real-life goal
+              into a mission and earn
+              XP when you complete it.
             </Text>
 
             <TouchableOpacity
@@ -1440,7 +1726,9 @@ export default function QuestsScreen() {
           style={styles.infoCard}
         >
           <Text
-            style={styles.infoEmoji}
+            style={
+              styles.infoEmoji
+            }
           >
             🌅
           </Text>
@@ -1455,8 +1743,7 @@ export default function QuestsScreen() {
                 styles.infoTitle
               }
             >
-              New day, new
-              adventure
+              New day, new adventure
             </Text>
 
             <Text
@@ -1464,12 +1751,11 @@ export default function QuestsScreen() {
                 styles.infoText
               }
             >
-              Completed quests
-              reset on a new day.
-              Your XP, Total XP,
-              level, streak and
-              quest history remain
-              saved.
+              Daily quests reset each
+              day. XP, level, lifetime
+              quest count and unlocked
+              achievements stay
+              permanently saved.
             </Text>
           </View>
         </View>
@@ -1541,7 +1827,8 @@ const styles =
       backgroundColor:
         "#3F2415",
       borderWidth: 1,
-      borderColor: "#92400E",
+      borderColor:
+        "#92400E",
       borderRadius: 18,
       padding: 17,
       marginBottom: 14,
@@ -1588,7 +1875,8 @@ const styles =
         "#1E293B",
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       padding: 17,
       marginBottom: 28,
     },
@@ -1668,22 +1956,26 @@ const styles =
         "#1E293B",
       borderRadius: 17,
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       padding: 15,
       marginBottom: 12,
     },
 
     customQuestCard: {
-      borderColor: "#4C1D95",
+      borderColor:
+        "#4C1D95",
     },
 
     completedCard: {
       opacity: 0.68,
-      borderColor: "#166534",
+      borderColor:
+        "#166534",
     },
 
     customLabel: {
-      alignSelf: "flex-start",
+      alignSelf:
+        "flex-start",
       backgroundColor:
         "#312E81",
       paddingHorizontal: 8,
@@ -1838,7 +2130,8 @@ const styles =
       backgroundColor:
         "#3F2B0B",
       borderWidth: 1,
-      borderColor: "#A16207",
+      borderColor:
+        "#A16207",
       borderRadius: 17,
       padding: 16,
       flexDirection: "row",
@@ -1897,7 +2190,8 @@ const styles =
         "#1E293B",
       borderRadius: 18,
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       alignItems: "center",
       padding: 22,
       marginBottom: 20,
@@ -1941,7 +2235,8 @@ const styles =
       backgroundColor:
         "#1E293B",
       borderWidth: 1,
-      borderColor: "#334155",
+      borderColor:
+        "#334155",
       borderRadius: 16,
       padding: 15,
       flexDirection: "row",
