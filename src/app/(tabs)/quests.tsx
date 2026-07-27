@@ -49,7 +49,8 @@ const DAILY_QUESTS: Quest[] = [
     id: "daily-1",
     emoji: "💪",
     title: "Morning Workout",
-    description: "Exercise for at least 30 minutes",
+    description:
+      "Exercise for at least 30 minutes",
     xp: 20,
     difficulty: "Medium",
   },
@@ -57,7 +58,8 @@ const DAILY_QUESTS: Quest[] = [
     id: "daily-2",
     emoji: "📚",
     title: "Study Session",
-    description: "Focus and study for 1 hour",
+    description:
+      "Focus and study for 1 hour",
     xp: 30,
     difficulty: "Hard",
   },
@@ -65,7 +67,8 @@ const DAILY_QUESTS: Quest[] = [
     id: "daily-3",
     emoji: "💧",
     title: "Stay Hydrated",
-    description: "Drink enough water throughout the day",
+    description:
+      "Drink enough water throughout the day",
     xp: 10,
     difficulty: "Easy",
   },
@@ -73,14 +76,15 @@ const DAILY_QUESTS: Quest[] = [
     id: "daily-4",
     emoji: "🧘",
     title: "Mindfulness",
-    description: "Meditate or reflect for 10 minutes",
+    description:
+      "Meditate or reflect for 10 minutes",
     xp: 15,
     difficulty: "Easy",
   },
 ];
 
 // ============================================
-// DATE HELPER
+// DATE HELPERS
 // ============================================
 
 const getTodayKey = () => {
@@ -99,31 +103,141 @@ const getTodayKey = () => {
   return `${year}-${month}-${day}`;
 };
 
+const getYesterdayKey = () => {
+  const yesterday = new Date();
+
+  yesterday.setDate(
+    yesterday.getDate() - 1
+  );
+
+  const year =
+    yesterday.getFullYear();
+
+  const month = String(
+    yesterday.getMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    yesterday.getDate()
+  ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
 // ============================================
 // SCREEN
 // ============================================
 
 export default function QuestsScreen() {
-  const [completedQuests, setCompletedQuests] =
-    useState<string[]>([]);
+  const [
+    completedQuests,
+    setCompletedQuests,
+  ] = useState<string[]>([]);
 
-  const [customQuests, setCustomQuests] =
-    useState<Quest[]>([]);
+  const [
+    customQuests,
+    setCustomQuests,
+  ] = useState<Quest[]>([]);
 
   const [totalXP, setTotalXP] =
     useState(0);
 
   const [streak, setStreak] =
-    useState(1);
+    useState(0);
 
   const [loading, setLoading] =
     useState(true);
 
-  const [customLoading, setCustomLoading] =
-    useState(true);
+  const [
+    customLoading,
+    setCustomLoading,
+  ] = useState(true);
 
-  const [completingId, setCompletingId] =
-    useState<string | null>(null);
+  const [
+    completingId,
+    setCompletingId,
+  ] = useState<string | null>(null);
+
+  // ============================================
+  // AUTOMATIC DAILY RESET
+  // ============================================
+
+  useEffect(() => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      return;
+    }
+
+    const prepareDailyQuests =
+      async () => {
+        const userRef = doc(
+          db,
+          "users",
+          user.uid
+        );
+
+        const today =
+          getTodayKey();
+
+        try {
+          await runTransaction(
+            db,
+            async (transaction) => {
+              const snapshot =
+                await transaction.get(
+                  userRef
+                );
+
+              if (!snapshot.exists()) {
+                return;
+              }
+
+              const data =
+                snapshot.data();
+
+              const storedQuestDate =
+                data.questDate || "";
+
+              // Already today's quest state
+              if (
+                storedQuestDate ===
+                today
+              ) {
+                return;
+              }
+
+              // Reset only daily completion
+              // state. Permanent stats remain.
+              transaction.update(
+                userRef,
+                {
+                  completedQuests:
+                    [],
+
+                  questDate:
+                    today,
+
+                  updatedAt:
+                    serverTimestamp(),
+                }
+              );
+            }
+          );
+
+          console.log(
+            "DAILY QUEST RESET CHECK COMPLETE"
+          );
+        } catch (error) {
+          console.error(
+            "DAILY QUEST RESET ERROR:",
+            error
+          );
+        }
+      };
+
+    prepareDailyQuests();
+  }, []);
 
   // ============================================
   // LOAD USER DATA
@@ -134,6 +248,7 @@ export default function QuestsScreen() {
 
     if (!user) {
       setLoading(false);
+      router.replace("/login");
       return;
     }
 
@@ -143,51 +258,73 @@ export default function QuestsScreen() {
       user.uid
     );
 
-    const unsubscribe = onSnapshot(
-      userRef,
+    const unsubscribe =
+      onSnapshot(
+        userRef,
 
-      (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
+        (snapshot) => {
+          if (
+            snapshot.exists()
+          ) {
+            const data =
+              snapshot.data();
 
-          const today =
-            getTodayKey();
+            const today =
+              getTodayKey();
 
-          const storedDate =
-            data.questDate || "";
+            const storedDate =
+              data.questDate ||
+              "";
 
-          // Only show today's completions
-          if (storedDate === today) {
-            setCompletedQuests(
-              data.completedQuests || []
+            if (
+              storedDate === today
+            ) {
+              const normalized =
+                (
+                  data.completedQuests ||
+                  []
+                ).map(
+                  (
+                    id:
+                      | string
+                      | number
+                  ) =>
+                    String(id)
+                );
+
+              setCompletedQuests(
+                normalized
+              );
+            } else {
+              setCompletedQuests(
+                []
+              );
+            }
+
+            setTotalXP(
+              data.totalXP ?? 0
             );
-          } else {
-            setCompletedQuests([]);
+
+            setStreak(
+              data.streak ?? 0
+            );
           }
 
-          setTotalXP(
-            data.totalXP ?? 0
+          setLoading(false);
+        },
+
+        (error) => {
+          console.error(
+            "QUEST USER FIRESTORE ERROR:",
+            error
           );
 
-          setStreak(
-            data.streak ?? 1
-          );
+          setLoading(false);
         }
+      );
 
-        setLoading(false);
-      },
-
-      (error) => {
-        console.error(
-          "QUEST USER FIRESTORE ERROR:",
-          error
-        );
-
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
+    return () =>
+      unsubscribe();
   }, []);
 
   // ============================================
@@ -198,7 +335,10 @@ export default function QuestsScreen() {
     const user = auth.currentUser;
 
     if (!user) {
-      setCustomLoading(false);
+      setCustomLoading(
+        false
+      );
+
       return;
     }
 
@@ -213,7 +353,11 @@ export default function QuestsScreen() {
     const customQuestQuery =
       query(
         customQuestRef,
-        where("active", "==", true)
+        where(
+          "active",
+          "==",
+          true
+        )
       );
 
     const unsubscribe =
@@ -221,9 +365,12 @@ export default function QuestsScreen() {
         customQuestQuery,
 
         (snapshot) => {
-          const loadedQuests: Quest[] =
+          const loadedQuests:
+            Quest[] =
             snapshot.docs.map(
-              (questDocument) => {
+              (
+                questDocument
+              ) => {
                 const data =
                   questDocument.data();
 
@@ -231,7 +378,8 @@ export default function QuestsScreen() {
                   id: `custom-${questDocument.id}`,
 
                   emoji:
-                    data.emoji || "⚔️",
+                    data.emoji ||
+                    "⚔️",
 
                   title:
                     data.title ||
@@ -242,7 +390,8 @@ export default function QuestsScreen() {
                     "",
 
                   xp:
-                    data.xp ?? 10,
+                    data.xp ??
+                    10,
 
                   difficulty:
                     data.difficulty ||
@@ -257,7 +406,9 @@ export default function QuestsScreen() {
             loadedQuests
           );
 
-          setCustomLoading(false);
+          setCustomLoading(
+            false
+          );
         },
 
         (error) => {
@@ -266,288 +417,371 @@ export default function QuestsScreen() {
             error
           );
 
-          setCustomLoading(false);
+          setCustomLoading(
+            false
+          );
         }
       );
 
-    return () => unsubscribe();
+    return () =>
+      unsubscribe();
   }, []);
 
   // ============================================
   // COMPLETE QUEST
   // ============================================
 
-  const completeQuest = async (
-    quest: Quest
-  ) => {
-    const user = auth.currentUser;
+  const completeQuest =
+    async (quest: Quest) => {
+      const user =
+        auth.currentUser;
 
-    if (!user) {
-      if (Platform.OS === "web") {
-        window.alert(
-          "Please sign in again."
-        );
-      } else {
-        Alert.alert(
-          "Session Error",
-          "Please sign in again."
-        );
-      }
-
-      return;
-    }
-
-    if (
-      completedQuests.includes(
-        quest.id
-      )
-    ) {
-      return;
-    }
-
-    try {
-      setCompletingId(
-        quest.id
-      );
-
-      const userRef = doc(
-        db,
-        "users",
-        user.uid
-      );
-
-      await runTransaction(
-        db,
-
-        async (transaction) => {
-          const snapshot =
-            await transaction.get(
-              userRef
-            );
-
-          if (!snapshot.exists()) {
-            throw new Error(
-              "Hero profile not found."
-            );
-          }
-
-          const data =
-            snapshot.data();
-
-          const today =
-            getTodayKey();
-
-          const storedDate =
-            data.questDate || "";
-
-          let currentCompleted: string[] =
-            [];
-
-          // ====================================
-          // TODAY'S COMPLETED QUESTS
-          // ====================================
-
-          if (
-            storedDate === today
-          ) {
-            currentCompleted =
-              data.completedQuests ||
-              [];
-          }
-
-          // Duplicate protection
-          if (
-            currentCompleted.includes(
-              quest.id
-            )
-          ) {
-            return;
-          }
-
-          // ====================================
-          // XP
-          // ====================================
-
-          const currentXP =
-            data.xp ?? 0;
-
-          const currentTotalXP =
-            data.totalXP ?? 0;
-
-          const currentLevel =
-            data.level ?? 1;
-
-          let newXP =
-            currentXP + quest.xp;
-
-          let newLevel =
-            currentLevel;
-
-          // 100 XP = 1 level
-          while (
-            newXP >= 100
-          ) {
-            newXP -= 100;
-
-            newLevel += 1;
-          }
-
-          // ====================================
-          // STREAK
-          // ====================================
-
-          let newStreak =
-            data.streak ?? 1;
-
-          const lastActiveDate =
-            data.lastActiveDate || "";
-
-          if (
-            lastActiveDate !== today
-          ) {
-            const yesterday =
-              new Date();
-
-            yesterday.setDate(
-              yesterday.getDate() - 1
-            );
-
-            const yesterdayYear =
-              yesterday.getFullYear();
-
-            const yesterdayMonth =
-              String(
-                yesterday.getMonth() +
-                1
-              ).padStart(
-                2,
-                "0"
-              );
-
-            const yesterdayDay =
-              String(
-                yesterday.getDate()
-              ).padStart(
-                2,
-                "0"
-              );
-
-            const yesterdayKey =
-              `${yesterdayYear}-${yesterdayMonth}-${yesterdayDay}`;
-
-            if (
-              lastActiveDate ===
-              yesterdayKey
-            ) {
-              newStreak =
-                (data.streak ?? 0) +
-                1;
-            } else {
-              newStreak = 1;
-            }
-          }
-
-          // ====================================
-          // UPDATE FIRESTORE
-          // ====================================
-
-          transaction.update(
-            userRef,
-            {
-              completedQuests: [
-                ...currentCompleted,
-                quest.id,
-              ],
-
-              questDate: today,
-
-              xp: newXP,
-
-              totalXP:
-                currentTotalXP +
-                quest.xp,
-
-              level:
-                newLevel,
-
-              streak:
-                newStreak,
-
-              lastActiveDate:
-                today,
-
-              updatedAt:
-                serverTimestamp(),
-            }
+      if (!user) {
+        if (
+          Platform.OS ===
+          "web"
+        ) {
+          window.alert(
+            "Please sign in again."
+          );
+        } else {
+          Alert.alert(
+            "Session Error",
+            "Please sign in again."
           );
         }
-      );
 
-      console.log(
-        "======================"
-      );
+        router.replace(
+          "/login"
+        );
 
-      console.log(
-        "QUEST COMPLETED:",
-        quest.title
-      );
-
-      console.log(
-        "XP EARNED:",
-        quest.xp
-      );
-
-      console.log(
-        "======================"
-      );
+        return;
+      }
 
       if (
-        Platform.OS === "web"
+        completedQuests.includes(
+          quest.id
+        )
       ) {
-        window.alert(
-          `Quest Complete! ⚔️\n\n+${quest.xp} XP`
+        return;
+      }
+
+      try {
+        setCompletingId(
+          quest.id
         );
-      } else {
-        Alert.alert(
-          "Quest Complete! ⚔️",
-          `You earned +${quest.xp} XP`
+
+        const userRef = doc(
+          db,
+          "users",
+          user.uid
+        );
+
+        const today =
+          getTodayKey();
+
+        const yesterday =
+          getYesterdayKey();
+
+        await runTransaction(
+          db,
+
+          async (
+            transaction
+          ) => {
+            const snapshot =
+              await transaction.get(
+                userRef
+              );
+
+            if (
+              !snapshot.exists()
+            ) {
+              throw new Error(
+                "Hero profile not found."
+              );
+            }
+
+            const data =
+              snapshot.data();
+
+            // ==================================
+            // TODAY'S COMPLETED QUESTS
+            // ==================================
+
+            const storedDate =
+              data.questDate ||
+              "";
+
+            let currentCompleted:
+              string[] = [];
+
+            if (
+              storedDate ===
+              today
+            ) {
+              currentCompleted =
+                (
+                  data.completedQuests ||
+                  []
+                ).map(
+                  (
+                    id:
+                      | string
+                      | number
+                  ) =>
+                    String(id)
+                );
+            }
+
+            // ==================================
+            // DUPLICATE XP PROTECTION
+            // ==================================
+
+            if (
+              currentCompleted.includes(
+                quest.id
+              )
+            ) {
+              return;
+            }
+
+            const newCompleted =
+              [
+                ...currentCompleted,
+                quest.id,
+              ];
+
+            // ==================================
+            // XP + LEVEL
+            // ==================================
+
+            const currentXP =
+              data.xp ?? 0;
+
+            const currentTotalXP =
+              data.totalXP ??
+              0;
+
+            const currentLevel =
+              data.level ?? 1;
+
+            let newXP =
+              currentXP +
+              quest.xp;
+
+            let newLevel =
+              currentLevel;
+
+            // 100 XP = 1 level
+            while (
+              newXP >= 100
+            ) {
+              newXP -= 100;
+
+              newLevel += 1;
+            }
+
+            // ==================================
+            // STREAK
+            // ==================================
+
+            const lastActiveDate =
+              data.lastActiveDate ||
+              "";
+
+            let newStreak =
+              data.streak ?? 0;
+
+            // Only change streak on
+            // first quest of the day.
+            if (
+              lastActiveDate !==
+              today
+            ) {
+              if (
+                lastActiveDate ===
+                yesterday
+              ) {
+                newStreak =
+                  (
+                    data.streak ??
+                    0
+                  ) + 1;
+              } else {
+                newStreak = 1;
+              }
+            }
+
+            // ==================================
+            // UPDATE USER
+            // ==================================
+
+            transaction.update(
+              userRef,
+              {
+                completedQuests:
+                  newCompleted,
+
+                questDate:
+                  today,
+
+                xp:
+                  newXP,
+
+                totalXP:
+                  currentTotalXP +
+                  quest.xp,
+
+                level:
+                  newLevel,
+
+                streak:
+                  newStreak,
+
+                lastActiveDate:
+                  today,
+
+                updatedAt:
+                  serverTimestamp(),
+              }
+            );
+
+            // ==================================
+            // QUEST HISTORY
+            // ==================================
+
+            const safeQuestId =
+              quest.id.replace(
+                /[^a-zA-Z0-9_-]/g,
+                "_"
+              );
+
+            const historyRef =
+              doc(
+                db,
+                "users",
+                user.uid,
+                "questHistory",
+                `${today}_${safeQuestId}`
+              );
+
+            transaction.set(
+              historyRef,
+              {
+                questId:
+                  quest.id,
+
+                title:
+                  quest.title,
+
+                description:
+                  quest.description,
+
+                emoji:
+                  quest.emoji,
+
+                difficulty:
+                  quest.difficulty,
+
+                xpEarned:
+                  quest.xp,
+
+                custom:
+                  quest.custom ??
+                  false,
+
+                completedDate:
+                  today,
+
+                completedAt:
+                  serverTimestamp(),
+              }
+            );
+          }
+        );
+
+        console.log(
+          "======================"
+        );
+
+        console.log(
+          "QUEST COMPLETED:",
+          quest.title
+        );
+
+        console.log(
+          "XP EARNED:",
+          quest.xp
+        );
+
+        console.log(
+          "QUEST HISTORY SAVED"
+        );
+
+        console.log(
+          "======================"
+        );
+
+        if (
+          Platform.OS ===
+          "web"
+        ) {
+          window.alert(
+            `Quest Complete! ⚔️\n\n+${quest.xp} XP`
+          );
+        } else {
+          Alert.alert(
+            "Quest Complete! ⚔️",
+            `You earned +${quest.xp} XP`
+          );
+        }
+      } catch (
+      error: any
+      ) {
+        console.error(
+          "COMPLETE QUEST ERROR:",
+          error
+        );
+
+        const message =
+          error?.message ||
+          "Unable to complete quest.";
+
+        if (
+          Platform.OS ===
+          "web"
+        ) {
+          window.alert(
+            message
+          );
+        } else {
+          Alert.alert(
+            "Quest Error",
+            message
+          );
+        }
+      } finally {
+        setCompletingId(
+          null
         );
       }
-    } catch (error: any) {
-      console.error(
-        "COMPLETE QUEST ERROR:",
-        error
-      );
-
-      const message =
-        error?.message ||
-        "Unable to complete quest.";
-
-      if (
-        Platform.OS === "web"
-      ) {
-        window.alert(
-          message
-        );
-      } else {
-        Alert.alert(
-          "Quest Error",
-          message
-        );
-      }
-    } finally {
-      setCompletingId(
-        null
-      );
-    }
-  };
+    };
 
   // ============================================
-  // DAILY CALCULATIONS
+  // CALCULATIONS
   // ============================================
 
   const completedDaily =
     DAILY_QUESTS.filter(
+      (quest) =>
+        completedQuests.includes(
+          quest.id
+        )
+    );
+
+  const completedCustom =
+    customQuests.filter(
       (quest) =>
         completedQuests.includes(
           quest.id
@@ -560,30 +794,26 @@ export default function QuestsScreen() {
         total + quest.xp,
       0
     ) +
-    customQuests
-      .filter((quest) =>
-        completedQuests.includes(
-          quest.id
-        )
-      )
-      .reduce(
-        (total, quest) =>
-          total + quest.xp,
-        0
-      );
+    completedCustom.reduce(
+      (total, quest) =>
+        total + quest.xp,
+      0
+    );
 
   const dailyProgress =
     DAILY_QUESTS.length > 0
       ? (
         completedDaily.length /
         DAILY_QUESTS.length
-      ) *
-      100
+      ) * 100
       : 0;
 
   const remainingDaily =
-    DAILY_QUESTS.length -
-    completedDaily.length;
+    Math.max(
+      DAILY_QUESTS.length -
+      completedDaily.length,
+      0
+    );
 
   // ============================================
   // QUEST CARD
@@ -600,7 +830,8 @@ export default function QuestsScreen() {
       );
 
     const isCompleting =
-      completingId === quest.id;
+      completingId ===
+      quest.id;
 
     return (
       <View
@@ -638,7 +869,9 @@ export default function QuestsScreen() {
           style={styles.questTop}
         >
           <View
-            style={styles.questIcon}
+            style={
+              styles.questIcon
+            }
           >
             <Text
               style={
@@ -672,7 +905,9 @@ export default function QuestsScreen() {
                 styles.questDescription
               }
             >
-              {quest.description}
+              {
+                quest.description
+              }
             </Text>
           </View>
         </View>
@@ -695,7 +930,9 @@ export default function QuestsScreen() {
                   styles.difficultyText
                 }
               >
-                {quest.difficulty}
+                {
+                  quest.difficulty
+                }
               </Text>
             </View>
 
@@ -717,17 +954,19 @@ export default function QuestsScreen() {
           {/* ACTION BUTTONS */}
 
           <View
-            style={styles.actionButtons}
+            style={
+              styles.actionButtons
+            }
           >
-            {/* EDIT CUSTOM QUEST */}
-
             {quest.custom &&
               !completed && (
                 <TouchableOpacity
                   style={
                     styles.editButton
                   }
-                  activeOpacity={0.75}
+                  activeOpacity={
+                    0.75
+                  }
                   onPress={() => {
                     const firestoreId =
                       quest.id.replace(
@@ -750,12 +989,10 @@ export default function QuestsScreen() {
                       styles.editButtonText
                     }
                   >
-                    ✏️ Edit
+                    Edit
                   </Text>
                 </TouchableOpacity>
               )}
-
-            {/* COMPLETE */}
 
             <TouchableOpacity
               disabled={
@@ -825,7 +1062,8 @@ export default function QuestsScreen() {
             styles.loadingText
           }
         >
-          Loading quests...
+          Loading today's
+          quests...
         </Text>
       </View>
     );
@@ -848,47 +1086,77 @@ export default function QuestsScreen() {
         {/* HEADER */}
 
         <View
-          style={styles.headerRow}
+          style={styles.header}
         >
-          <View style={styles.header}>
+          <Text
+            style={styles.eyebrow}
+          >
+            QUEST BOARD
+          </Text>
+
+          <Text
+            style={styles.title}
+          >
+            📜 Daily Quests
+          </Text>
+
+          <Text
+            style={styles.subtitle}
+          >
+            Complete real-life
+            missions every day,
+            earn XP and build your
+            streak.
+          </Text>
+        </View>
+
+        {/* STREAK */}
+
+        <View
+          style={styles.streakCard}
+        >
+          <View>
             <Text
-              style={styles.eyebrow}
+              style={
+                styles.streakLabel
+              }
             >
-              QUEST BOARD
+              CURRENT STREAK
             </Text>
 
             <Text
-              style={styles.title}
+              style={
+                styles.streakValue
+              }
             >
-              📜 Daily Quests
-            </Text>
-
-            <Text
-              style={styles.subtitle}
-            >
-              Complete real-life
-              missions and earn XP.
+              🔥 {streak}{" "}
+              {streak === 1
+                ? "Day"
+                : "Days"}
             </Text>
           </View>
 
-          <TouchableOpacity
+          <View
             style={
-              styles.addQuestButton
-            }
-            onPress={() =>
-              router.push(
-                "/create-quest"
-              )
+              styles.totalXPContainer
             }
           >
             <Text
               style={
-                styles.addQuestText
+                styles.totalXPLabel
               }
             >
-              + Quest
+              TOTAL XP
             </Text>
-          </TouchableOpacity>
+
+            <Text
+              style={
+                styles.totalXPValue
+              }
+            >
+              ⭐ {totalXP}
+            </Text>
+          </View>
         </View>
 
         {/* PROGRESS */}
@@ -909,31 +1177,31 @@ export default function QuestsScreen() {
                   styles.progressLabel
                 }
               >
-                TODAY'S PROGRESS
+                DAILY PROGRESS
               </Text>
 
               <Text
                 style={
-                  styles.progressTitle
+                  styles.progressValue
                 }
               >
                 {
                   completedDaily.length
-                }{" "}
-                /{" "}
+                }
+                /
                 {
                   DAILY_QUESTS.length
                 }{" "}
-                Completed
+                completed
               </Text>
             </View>
 
             <Text
               style={
-                styles.progressEmoji
+                styles.earnedXP
               }
             >
-              ⚔️
+              +{earnedToday} XP
             </Text>
           </View>
 
@@ -945,110 +1213,54 @@ export default function QuestsScreen() {
             <View
               style={[
                 styles.progressFill,
-
                 {
-                  width:
-                    `${dailyProgress}%`,
+                  width: `${dailyProgress}%`,
                 },
               ]}
             />
           </View>
 
-          <View
+          <Text
             style={
-              styles.rewardRow
+              styles.remainingText
             }
           >
-            <View>
-              <Text
-                style={
-                  styles.rewardLabel
-                }
-              >
-                XP earned today
-              </Text>
-
-              <Text
-                style={
-                  styles.rewardValue
-                }
-              >
-                +{earnedToday} XP
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.totalXPContainer
-              }
-            >
-              <Text
-                style={
-                  styles.totalXPLabel
-                }
-              >
-                TOTAL XP
-              </Text>
-
-              <Text
-                style={
-                  styles.totalXPValue
-                }
-              >
-                ⭐ {totalXP}
-              </Text>
-            </View>
-          </View>
-
-          {/* STREAK */}
-
-          <View
-            style={
-              styles.streakRow
-            }
-          >
-            <Text
-              style={
-                styles.streakText
-              }
-            >
-              🔥 {streak} Day
-              Streak
-            </Text>
-
-            <Text
-              style={
-                styles.dateText
-              }
-            >
-              {getTodayKey()}
-            </Text>
-          </View>
+            {remainingDaily ===
+              0
+              ? "All daily quests completed! 🏆"
+              : `${remainingDaily} daily ${remainingDaily ===
+                1
+                ? "quest"
+                : "quests"
+              } remaining`}
+          </Text>
         </View>
 
-        {/* DAILY QUEST HEADER */}
+        {/* DAILY QUEST TITLE */}
 
         <View
           style={
             styles.sectionHeader
           }
         >
-          <Text
-            style={
-              styles.sectionTitle
-            }
-          >
-            Daily Missions
-          </Text>
+          <View>
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
+              Today's Quests
+            </Text>
 
-          <Text
-            style={
-              styles.questCount
-            }
-          >
-            {remainingDaily}{" "}
-            remaining
-          </Text>
+            <Text
+              style={
+                styles.sectionSubtitle
+              }
+            >
+              Resets every new
+              day
+            </Text>
+          </View>
         </View>
 
         {/* DAILY QUESTS */}
@@ -1062,119 +1274,7 @@ export default function QuestsScreen() {
           )
         )}
 
-        {/* CUSTOM QUEST HEADER */}
-
-        <View
-          style={[
-            styles.sectionHeader,
-            styles.customSectionHeader,
-          ]}
-        >
-          <View>
-            <Text
-              style={
-                styles.sectionTitle
-              }
-            >
-              Your Quests
-            </Text>
-
-            <Text
-              style={
-                styles.sectionSubtitle
-              }
-            >
-              Missions created by
-              you
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={() =>
-              router.push(
-                "/create-quest"
-              )
-            }
-          >
-            <Text
-              style={
-                styles.createLink
-              }
-            >
-              + Create
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* EMPTY CUSTOM QUESTS */}
-
-        {customQuests.length ===
-          0 && (
-            <View
-              style={
-                styles.emptyCard
-              }
-            >
-              <Text
-                style={
-                  styles.emptyEmoji
-                }
-              >
-                ⚔️
-              </Text>
-
-              <Text
-                style={
-                  styles.emptyTitle
-                }
-              >
-                Create Your First
-                Quest
-              </Text>
-
-              <Text
-                style={
-                  styles.emptyText
-                }
-              >
-                Turn your own goals
-                into missions and
-                earn XP.
-              </Text>
-
-              <TouchableOpacity
-                style={
-                  styles.emptyButton
-                }
-                onPress={() =>
-                  router.push(
-                    "/create-quest"
-                  )
-                }
-              >
-                <Text
-                  style={
-                    styles.emptyButtonText
-                  }
-                >
-                  + Create Quest
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-        {/* CUSTOM QUESTS */}
-
-        {customQuests.map(
-          (quest) => (
-            <QuestCard
-              key={quest.id}
-              quest={quest}
-            />
-          )
-        )}
-
-        {/* DAILY COMPLETE */}
+        {/* DAILY VICTORY */}
 
         {completedDaily.length ===
           DAILY_QUESTS.length && (
@@ -1191,27 +1291,188 @@ export default function QuestsScreen() {
                 🏆
               </Text>
 
-              <Text
+              <View
                 style={
-                  styles.victoryTitle
+                  styles.victoryInfo
                 }
               >
-                Daily Missions
-                Clear!
-              </Text>
+                <Text
+                  style={
+                    styles.victoryTitle
+                  }
+                >
+                  Daily Quest Clear!
+                </Text>
 
-              <Text
-                style={
-                  styles.victoryText
-                }
-              >
-                You completed every
-                daily mission. Come
-                back tomorrow for a
-                new adventure.
-              </Text>
+                <Text
+                  style={
+                    styles.victoryText
+                  }
+                >
+                  You completed
+                  every daily quest
+                  today.
+                </Text>
+              </View>
             </View>
           )}
+
+        {/* CUSTOM QUEST HEADER */}
+
+        <View
+          style={
+            styles.customHeader
+          }
+        >
+          <View>
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
+              Custom Quests
+            </Text>
+
+            <Text
+              style={
+                styles.sectionSubtitle
+              }
+            >
+              Your personal
+              missions
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={
+              styles.addQuestButton
+            }
+            activeOpacity={0.75}
+            onPress={() =>
+              router.push(
+                "/create-quest"
+              )
+            }
+          >
+            <Text
+              style={
+                styles.addQuestText
+              }
+            >
+              + Create
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* CUSTOM QUESTS */}
+
+        {customQuests.length >
+          0 ? (
+          customQuests.map(
+            (quest) => (
+              <QuestCard
+                key={quest.id}
+                quest={quest}
+              />
+            )
+          )
+        ) : (
+          <View
+            style={
+              styles.emptyCustomCard
+            }
+          >
+            <Text
+              style={
+                styles.emptyCustomEmoji
+              }
+            >
+              ⚔️
+            </Text>
+
+            <Text
+              style={
+                styles.emptyCustomTitle
+              }
+            >
+              Create your own
+              quest
+            </Text>
+
+            <Text
+              style={
+                styles.emptyCustomText
+              }
+            >
+              Turn a real-life
+              goal into a mission
+              and earn XP when
+              you complete it.
+            </Text>
+
+            <TouchableOpacity
+              style={
+                styles.emptyCreateButton
+              }
+              activeOpacity={
+                0.75
+              }
+              onPress={() =>
+                router.push(
+                  "/create-quest"
+                )
+              }
+            >
+              <Text
+                style={
+                  styles.emptyCreateText
+                }
+              >
+                Create Quest
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* INFO */}
+
+        <View
+          style={styles.infoCard}
+        >
+          <Text
+            style={styles.infoEmoji}
+          >
+            🌅
+          </Text>
+
+          <View
+            style={
+              styles.infoContent
+            }
+          >
+            <Text
+              style={
+                styles.infoTitle
+              }
+            >
+              New day, new
+              adventure
+            </Text>
+
+            <Text
+              style={
+                styles.infoText
+              }
+            >
+              Completed quests
+              reset on a new day.
+              Your XP, Total XP,
+              level, streak and
+              quest history remain
+              saved.
+            </Text>
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
@@ -1236,6 +1497,7 @@ const styles =
       alignItems: "center",
       justifyContent:
         "center",
+      padding: 30,
     },
 
     loadingText: {
@@ -1250,20 +1512,8 @@ const styles =
       paddingBottom: 60,
     },
 
-    // HEADER
-
-    headerRow: {
-      flexDirection: "row",
-      alignItems:
-        "flex-start",
-      justifyContent:
-        "space-between",
-      marginBottom: 24,
-    },
-
     header: {
-      flex: 1,
-      paddingRight: 15,
+      marginBottom: 20,
     },
 
     eyebrow: {
@@ -1287,30 +1537,59 @@ const styles =
       lineHeight: 20,
     },
 
-    addQuestButton: {
+    streakCard: {
       backgroundColor:
-        "#7C3AED",
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 11,
-      marginTop: 15,
+        "#3F2415",
+      borderWidth: 1,
+      borderColor: "#92400E",
+      borderRadius: 18,
+      padding: 17,
+      marginBottom: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
     },
 
-    addQuestText: {
+    streakLabel: {
+      color: "#F59E0B",
+      fontSize: 9,
+      fontWeight: "800",
+      letterSpacing: 1.5,
+      marginBottom: 5,
+    },
+
+    streakValue: {
       color: "#FFFFFF",
-      fontSize: 10,
+      fontSize: 20,
       fontWeight: "900",
     },
 
-    // PROGRESS
+    totalXPContainer: {
+      alignItems: "flex-end",
+    },
+
+    totalXPLabel: {
+      color: "#F59E0B",
+      fontSize: 8,
+      fontWeight: "800",
+      letterSpacing: 1,
+      marginBottom: 5,
+    },
+
+    totalXPValue: {
+      color: "#FFFFFF",
+      fontSize: 16,
+      fontWeight: "900",
+    },
 
     progressCard: {
       backgroundColor:
         "#1E293B",
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: "#334155",
-      borderRadius: 20,
-      padding: 18,
+      padding: 17,
       marginBottom: 28,
     },
 
@@ -1319,34 +1598,36 @@ const styles =
       justifyContent:
         "space-between",
       alignItems: "center",
-      marginBottom: 18,
+      marginBottom: 14,
     },
 
     progressLabel: {
       color: "#A78BFA",
-      fontSize: 10,
-      fontWeight: "800",
-      letterSpacing: 1.5,
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.3,
       marginBottom: 5,
     },
 
-    progressTitle: {
+    progressValue: {
       color: "#FFFFFF",
-      fontSize: 19,
+      fontSize: 14,
       fontWeight: "800",
     },
 
-    progressEmoji: {
-      fontSize: 30,
+    earnedXP: {
+      color: "#C4B5FD",
+      fontSize: 13,
+      fontWeight: "900",
     },
 
     progressTrack: {
+      width: "100%",
       height: 9,
       backgroundColor:
         "#334155",
       borderRadius: 10,
       overflow: "hidden",
-      marginBottom: 14,
     },
 
     progressFill: {
@@ -1356,131 +1637,59 @@ const styles =
       borderRadius: 10,
     },
 
-    rewardRow: {
-      flexDirection: "row",
-      justifyContent:
-        "space-between",
-      alignItems: "flex-end",
-    },
-
-    rewardLabel: {
-      color: "#94A3B8",
-      fontSize: 10,
-    },
-
-    rewardValue: {
-      color: "#A78BFA",
-      fontSize: 14,
-      fontWeight: "800",
-      marginTop: 3,
-    },
-
-    totalXPContainer: {
-      alignItems: "flex-end",
-    },
-
-    totalXPLabel: {
+    remainingText: {
       color: "#64748B",
-      fontSize: 8,
-      fontWeight: "700",
-    },
-
-    totalXPValue: {
-      color: "#FFFFFF",
-      fontSize: 13,
-      fontWeight: "800",
-      marginTop: 3,
-    },
-
-    streakRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-      borderTopWidth: 1,
-      borderTopColor:
-        "#334155",
-      marginTop: 13,
-      paddingTop: 12,
-    },
-
-    streakText: {
-      color: "#F59E0B",
       fontSize: 10,
-      fontWeight: "800",
+      marginTop: 8,
     },
-
-    dateText: {
-      color: "#64748B",
-      fontSize: 9,
-    },
-
-    // SECTION
 
     sectionHeader: {
       flexDirection: "row",
+      alignItems: "center",
       justifyContent:
         "space-between",
-      alignItems: "center",
       marginBottom: 14,
-    },
-
-    customSectionHeader: {
-      marginTop: 20,
     },
 
     sectionTitle: {
       color: "#FFFFFF",
-      fontSize: 18,
+      fontSize: 19,
       fontWeight: "800",
     },
 
     sectionSubtitle: {
       color: "#64748B",
-      fontSize: 9,
+      fontSize: 10,
       marginTop: 4,
     },
-
-    questCount: {
-      color: "#64748B",
-      fontSize: 11,
-    },
-
-    createLink: {
-      color: "#A78BFA",
-      fontSize: 11,
-      fontWeight: "800",
-    },
-
-    // QUEST
 
     questCard: {
       backgroundColor:
         "#1E293B",
+      borderRadius: 17,
       borderWidth: 1,
       borderColor: "#334155",
-      borderRadius: 18,
       padding: 15,
-      marginBottom: 14,
+      marginBottom: 12,
     },
 
     customQuestCard: {
-      borderColor: "#6D28D9",
+      borderColor: "#4C1D95",
     },
 
     completedCard: {
-      opacity: 0.65,
-      borderColor: "#4C1D95",
+      opacity: 0.68,
+      borderColor: "#166534",
     },
 
     customLabel: {
       alignSelf: "flex-start",
       backgroundColor:
         "#312E81",
-      borderRadius: 7,
       paddingHorizontal: 8,
       paddingVertical: 4,
-      marginBottom: 10,
+      borderRadius: 7,
+      marginBottom: 11,
     },
 
     customLabelText: {
@@ -1492,15 +1701,15 @@ const styles =
 
     questTop: {
       flexDirection: "row",
-      marginBottom: 15,
+      alignItems: "center",
     },
 
     questIcon: {
       width: 48,
       height: 48,
+      borderRadius: 14,
       backgroundColor:
         "#0F172A",
-      borderRadius: 14,
       alignItems: "center",
       justifyContent:
         "center",
@@ -1517,9 +1726,8 @@ const styles =
 
     questTitle: {
       color: "#FFFFFF",
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: "800",
-      marginBottom: 5,
     },
 
     completedQuestTitle: {
@@ -1530,180 +1738,236 @@ const styles =
 
     questDescription: {
       color: "#94A3B8",
-      fontSize: 11,
-      lineHeight: 17,
+      fontSize: 10,
+      lineHeight: 15,
+      marginTop: 4,
     },
 
     questMeta: {
+      marginTop: 14,
       flexDirection: "row",
       alignItems: "center",
       justifyContent:
         "space-between",
+      gap: 8,
     },
 
     badges: {
       flexDirection: "row",
-      gap: 7,
+      alignItems: "center",
+      gap: 6,
+      flexShrink: 1,
     },
 
     difficultyBadge: {
       backgroundColor:
-        "#334155",
-      paddingHorizontal: 9,
+        "#0F172A",
+      paddingHorizontal: 8,
       paddingVertical: 5,
       borderRadius: 8,
     },
 
     difficultyText: {
-      color: "#CBD5E1",
-      fontSize: 9,
-      fontWeight: "700",
+      color: "#94A3B8",
+      fontSize: 8,
+      fontWeight: "800",
     },
 
     xpBadge: {
       backgroundColor:
         "#312E81",
-      paddingHorizontal: 9,
+      paddingHorizontal: 8,
       paddingVertical: 5,
       borderRadius: 8,
     },
 
     xpText: {
       color: "#C4B5FD",
-      fontSize: 9,
-      fontWeight: "800",
+      fontSize: 8,
+      fontWeight: "900",
     },
-
-    // ACTIONS
 
     actionButtons: {
       flexDirection: "row",
       alignItems: "center",
-      marginLeft: 8,
+      gap: 7,
     },
 
     editButton: {
-      minHeight: 32,
       backgroundColor:
         "#334155",
-      paddingHorizontal: 12,
+      paddingHorizontal: 11,
       paddingVertical: 8,
-      borderRadius: 10,
-      alignItems: "center",
-      justifyContent:
-        "center",
-      marginRight: 8,
+      borderRadius: 9,
     },
 
     editButtonText: {
-      color: "#C4B5FD",
-      fontSize: 10,
+      color: "#CBD5E1",
+      fontSize: 9,
       fontWeight: "800",
     },
 
     completeButton: {
-      minWidth: 78,
-      minHeight: 32,
+      minWidth: 82,
+      minHeight: 34,
+      backgroundColor:
+        "#7C3AED",
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent:
+        "center",
+      paddingHorizontal: 10,
+    },
+
+    completedButton: {
+      backgroundColor:
+        "#14532D",
+    },
+
+    completeButtonText: {
+      color: "#FFFFFF",
+      fontSize: 9,
+      fontWeight: "900",
+    },
+
+    completedButtonText: {
+      color: "#86EFAC",
+    },
+
+    victoryCard: {
+      backgroundColor:
+        "#3F2B0B",
+      borderWidth: 1,
+      borderColor: "#A16207",
+      borderRadius: 17,
+      padding: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: 4,
+      marginBottom: 27,
+    },
+
+    victoryEmoji: {
+      fontSize: 31,
+      marginRight: 13,
+    },
+
+    victoryInfo: {
+      flex: 1,
+    },
+
+    victoryTitle: {
+      color: "#FDE68A",
+      fontSize: 14,
+      fontWeight: "900",
+    },
+
+    victoryText: {
+      color: "#D6D3D1",
+      fontSize: 10,
+      lineHeight: 15,
+      marginTop: 4,
+    },
+
+    customHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+      marginTop: 5,
+      marginBottom: 14,
+    },
+
+    addQuestButton: {
       backgroundColor:
         "#7C3AED",
       paddingHorizontal: 13,
       paddingVertical: 8,
       borderRadius: 10,
-      alignItems: "center",
-      justifyContent:
-        "center",
     },
 
-    completedButton: {
-      backgroundColor:
-        "#334155",
-    },
-
-    completeButtonText: {
+    addQuestText: {
       color: "#FFFFFF",
       fontSize: 10,
-      fontWeight: "800",
+      fontWeight: "900",
     },
 
-    completedButtonText: {
-      color: "#94A3B8",
-    },
-
-    // EMPTY
-
-    emptyCard: {
+    emptyCustomCard: {
       backgroundColor:
         "#1E293B",
-      borderWidth: 1,
-      borderStyle: "dashed",
-      borderColor: "#475569",
       borderRadius: 18,
-      padding: 25,
+      borderWidth: 1,
+      borderColor: "#334155",
       alignItems: "center",
-      marginBottom: 15,
+      padding: 22,
+      marginBottom: 20,
     },
 
-    emptyEmoji: {
-      fontSize: 30,
-      marginBottom: 10,
+    emptyCustomEmoji: {
+      fontSize: 32,
+      marginBottom: 9,
     },
 
-    emptyTitle: {
+    emptyCustomTitle: {
       color: "#FFFFFF",
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: "800",
     },
 
-    emptyText: {
+    emptyCustomText: {
       color: "#94A3B8",
       fontSize: 10,
-      textAlign: "center",
       lineHeight: 16,
-      marginTop: 5,
+      textAlign: "center",
+      marginTop: 6,
       marginBottom: 14,
     },
 
-    emptyButton: {
+    emptyCreateButton: {
       backgroundColor:
-        "#7C3AED",
-      paddingHorizontal: 14,
+        "#312E81",
+      paddingHorizontal: 15,
       paddingVertical: 9,
       borderRadius: 10,
     },
 
-    emptyButtonText: {
-      color: "#FFFFFF",
-      fontSize: 10,
-      fontWeight: "800",
-    },
-
-    // VICTORY
-
-    victoryCard: {
-      backgroundColor:
-        "#312E81",
-      borderRadius: 20,
-      padding: 22,
-      alignItems: "center",
-      marginTop: 12,
-    },
-
-    victoryEmoji: {
-      fontSize: 38,
-      marginBottom: 10,
-    },
-
-    victoryTitle: {
-      color: "#FFFFFF",
-      fontSize: 18,
-      fontWeight: "900",
-      marginBottom: 7,
-    },
-
-    victoryText: {
+    emptyCreateText: {
       color: "#C4B5FD",
+      fontSize: 10,
+      fontWeight: "900",
+    },
+
+    infoCard: {
+      backgroundColor:
+        "#1E293B",
+      borderWidth: 1,
+      borderColor: "#334155",
+      borderRadius: 16,
+      padding: 15,
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: 8,
+    },
+
+    infoEmoji: {
+      fontSize: 25,
+      marginRight: 12,
+    },
+
+    infoContent: {
+      flex: 1,
+    },
+
+    infoTitle: {
+      color: "#FFFFFF",
       fontSize: 12,
-      textAlign: "center",
-      lineHeight: 19,
+      fontWeight: "800",
+      marginBottom: 4,
+    },
+
+    infoText: {
+      color: "#94A3B8",
+      fontSize: 9,
+      lineHeight: 15,
     },
   });
