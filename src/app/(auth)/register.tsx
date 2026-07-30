@@ -1,15 +1,8 @@
 import { auth, db } from "@/lib/firebase";
-import { BorderRadius } from "@/theme/borderRadius";
-import { Colors } from "@/theme/colors";
-import { Spacing } from "@/theme/spacing";
-import { FontSize } from "@/theme/typography";
-
 import { router } from "expo-router";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-
-import { useEffect, useState } from "react";
-
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,12 +11,10 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -31,6 +22,8 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { RPGTheme } from "../utils/rpgTheme";
+import { HeadingText, TitleText, BodyText, ButtonText, AppText } from "@/components/Typography";
 
 const DURATION = 650;
 const EASE = Easing.out(Easing.cubic);
@@ -73,12 +66,11 @@ function InputField({
         isFocused && styles.inputWrapperFocused,
       ]}
     >
-      <Text style={styles.inputIcon}>{icon}</Text>
-
+      <AppText style={styles.inputIcon}>{icon}</AppText>
       <TextInput
         style={styles.input}
         placeholder={placeholder}
-        placeholderTextColor={Colors.textSecondary}
+        placeholderTextColor={RPGTheme.colors.textMuted}
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}
@@ -114,236 +106,141 @@ export default function RegisterScreen() {
   useEffect(() => {
     headerOpacity.value = withDelay(
       80,
-      withTiming(1, {
-        duration: DURATION,
-        easing: EASE,
-      })
+      withTiming(1, { duration: DURATION, easing: EASE })
     );
-
     headerTranslateY.value = withDelay(
       80,
-      withTiming(0, {
-        duration: DURATION,
-        easing: EASE,
-      })
+      withTiming(0, { duration: DURATION, easing: EASE })
     );
 
     formOpacity.value = withDelay(
       260,
-      withTiming(1, {
-        duration: DURATION,
-        easing: EASE,
-      })
+      withTiming(1, { duration: DURATION, easing: EASE })
     );
-
     formTranslateY.value = withDelay(
       260,
-      withTiming(0, {
-        duration: DURATION,
-        easing: EASE,
-      })
+      withTiming(0, { duration: DURATION, easing: EASE })
     );
 
     actionsOpacity.value = withDelay(
       440,
-      withTiming(1, {
-        duration: DURATION,
-        easing: EASE,
-      })
+      withTiming(1, { duration: DURATION, easing: EASE })
     );
-
     actionsTranslateY.value = withDelay(
       440,
-      withTiming(0, {
-        duration: DURATION,
-        easing: EASE,
-      })
+      withTiming(0, { duration: DURATION, easing: EASE })
     );
   }, []);
 
   const headerAnimStyle = useAnimatedStyle(() => ({
     opacity: headerOpacity.value,
-    transform: [
-      {
-        translateY: headerTranslateY.value,
-      },
-    ],
+    transform: [{ translateY: headerTranslateY.value }],
   }));
 
   const formAnimStyle = useAnimatedStyle(() => ({
     opacity: formOpacity.value,
-    transform: [
-      {
-        translateY: formTranslateY.value,
-      },
-    ],
+    transform: [{ translateY: formTranslateY.value }],
   }));
 
   const actionsAnimStyle = useAnimatedStyle(() => ({
     opacity: actionsOpacity.value,
-    transform: [
-      {
-        translateY: actionsTranslateY.value,
-      },
-    ],
+    transform: [{ translateY: actionsTranslateY.value }],
   }));
 
-  // REGISTER + SAVE HERO TO FIRESTORE
   const handleRegister = async () => {
-    console.log("CREATE HERO STARTED");
-
     if (!heroName.trim()) {
       Alert.alert("Error", "Please enter your Hero Name.");
       return;
     }
-
     if (!email.trim()) {
       Alert.alert("Error", "Please enter your email.");
       return;
     }
-
     if (!password) {
       Alert.alert("Error", "Please enter your password.");
       return;
     }
-
-    if (!confirmPassword) {
-      Alert.alert("Error", "Please confirm your password.");
-      return;
-    }
-
     if (password !== confirmPassword) {
-      Alert.alert(
-        "Password Mismatch",
-        "Passwords do not match."
-      );
+      Alert.alert("Password Mismatch", "Passwords do not match.");
       return;
     }
-
     if (password.length < 6) {
-      Alert.alert(
-        "Weak Password",
-        "Password must be at least 6 characters."
-      );
+      Alert.alert("Weak Password", "Password must be at least 6 characters.");
       return;
     }
 
     try {
       setLoading(true);
-
-      console.log("Creating Firebase account...");
-
-      const userCredential =
-        await createUserWithEmailAndPassword(
-          auth,
-          email.trim().toLowerCase(),
-          password
-        );
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email.trim().toLowerCase(),
+        password
+      );
 
       const user = userCredential.user;
 
-      console.log("AUTH SUCCESS:", user.uid);
-
-      // SAVE HERO PROFILE
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
-
         heroName: heroName.trim(),
-
         email: email.trim().toLowerCase(),
-
-        class: "",
-
+        class: "Paladin Adventurer",
         level: 1,
-
         xp: 0,
-
         totalXP: 0,
-
+        coins: 0,
         streak: 1,
-
+        skills: {
+          strength: 0,
+          intelligence: 0,
+          discipline: 0,
+          wisdom: 0,
+          vitality: 0,
+          creativity: 0,
+        },
+        inventory: [],
+        equipment: {
+          weapon: null,
+          helmet: null,
+          armor: null,
+          boots: null,
+          shield: null,
+          accessory: null,
+        },
+        currentChapter: 1,
+        unlockedChapters: [1],
+        completedChapters: [],
+        chapterBossesDefeated: {},
         completedQuests: [],
-
+        totalQuestsCompleted: 0,
+        questDate: "",
+        lastActiveDate: "",
+        unlockedAchievements: [],
+        ownedTitles: ["novice"],
+        ownedThemes: ["purple"],
+        ownedAvatars: ["warrior"],
+        equippedTitle: "novice",
+        equippedTheme: "purple",
+        equippedAvatar: "warrior",
         createdAt: serverTimestamp(),
-
         updatedAt: serverTimestamp(),
       });
 
-      console.log("HERO DATA SAVED TO FIRESTORE");
-
       if (Platform.OS === "web") {
-        window.alert(
-          "Hero Created Successfully!"
-        );
+        window.alert("Hero Created Successfully!");
       } else {
-        Alert.alert(
-          "Success",
-          "Hero Created Successfully!"
-        );
+        Alert.alert("Success", "Hero Created Successfully!");
       }
 
-      router.replace("/character");
+      router.replace("/(tabs)/home");
     } catch (error: any) {
-      console.error(
-        "REGISTRATION ERROR:",
-        error
-      );
-
-      console.error(
-        "ERROR CODE:",
-        error?.code
-      );
-
-      console.error(
-        "ERROR MESSAGE:",
-        error?.message
-      );
-
-      let message =
-        error?.message ||
-        "Unable to create your hero.";
-
-      if (
-        error?.code ===
-        "auth/email-already-in-use"
-      ) {
-        message =
-          "This email is already registered. Please use another email or sign in.";
+      let message = error?.message || "Unable to create your hero.";
+      if (error?.code === "auth/email-already-in-use") {
+        message = "This email is already registered. Please sign in.";
       }
-
-      if (
-        error?.code ===
-        "auth/invalid-email"
-      ) {
-        message =
-          "Please enter a valid email address.";
-      }
-
-      if (
-        error?.code ===
-        "auth/weak-password"
-      ) {
-        message =
-          "Please use a stronger password.";
-      }
-
-      if (
-        error?.code ===
-        "permission-denied"
-      ) {
-        message =
-          "Firestore permission denied. Please check your Firestore rules.";
-      }
-
       if (Platform.OS === "web") {
-        window.alert(
-          `Registration Failed\n\n${message}`
-        );
+        window.alert(`Registration Failed\n\n${message}`);
       } else {
-        Alert.alert(
-          "Registration Failed",
-          message
-        );
+        Alert.alert("Registration Failed", message);
       }
     } finally {
       setLoading(false);
@@ -353,26 +250,12 @@ export default function RegisterScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.keyboardView}
-      behavior={
-        Platform.OS === "ios"
-          ? "padding"
-          : undefined
-      }
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor={Colors.background}
-      />
+      <StatusBar barStyle="light-content" backgroundColor={RPGTheme.colors.bg} />
 
-      <View
-        pointerEvents="none"
-        style={styles.glowTopLeft}
-      />
-
-      <View
-        pointerEvents="none"
-        style={styles.glowBottomRight}
-      />
+      <View pointerEvents="none" style={styles.glowTopLeft} />
+      <View pointerEvents="none" style={styles.glowBottomRight} />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -380,226 +263,128 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
-          {/* HEADER */}
-
-          <Animated.View
-            style={[
-              styles.headerSection,
-              headerAnimStyle,
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() =>
-                router.push("/login")
-              }
-              activeOpacity={0.7}
-            >
-              <Text style={styles.backArrow}>
-                ←
-              </Text>
-
-              <Text style={styles.backLabel}>
-                Back to Sign In
-              </Text>
-            </TouchableOpacity>
-
-            <Text style={styles.eyebrow}>
-              ✦ JOIN THE REALM ✦
-            </Text>
-
-            <Text style={styles.title}>
-              Create Your Hero
-            </Text>
-
-            <Text style={styles.subtitle}>
-              Begin your legendary journey.
-            </Text>
-          </Animated.View>
-
-          {/* FORM */}
-
-          <Animated.View
-            style={[
-              styles.formSection,
-              formAnimStyle,
-            ]}
-          >
-            <InputField
-              id="heroName"
-              placeholder="Hero Name"
-              value={heroName}
-              onChangeText={setHeroName}
-              icon="🧙"
-              focusedId={focusedId}
-              onFocus={setFocusedId}
-              onBlur={() =>
-                setFocusedId(null)
-              }
-              autoCapitalize="words"
-            />
-
-            <InputField
-              id="email"
-              placeholder="Email Address"
-              value={email}
-              onChangeText={setEmail}
-              icon="✉️"
-              focusedId={focusedId}
-              onFocus={setFocusedId}
-              onBlur={() =>
-                setFocusedId(null)
-              }
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <InputField
-              id="password"
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              icon="🔒"
-              focusedId={focusedId}
-              onFocus={setFocusedId}
-              onBlur={() =>
-                setFocusedId(null)
-              }
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <InputField
-              id="confirmPassword"
-              placeholder="Confirm Password"
-              value={confirmPassword}
-              onChangeText={
-                setConfirmPassword
-              }
-              icon="🛡️"
-              focusedId={focusedId}
-              onFocus={setFocusedId}
-              onBlur={() =>
-                setFocusedId(null)
-              }
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            {confirmPassword.length > 0 && (
-              <Text
-                style={[
-                  styles.matchHint,
-                  password ===
-                    confirmPassword
-                    ? styles.matchHintSuccess
-                    : styles.matchHintError,
-                ]}
-              >
-                {password ===
-                  confirmPassword
-                  ? "✓ Passwords match"
-                  : "✗ Passwords do not match"}
-              </Text>
-            )}
-          </Animated.View>
-
-          {/* ACTIONS */}
-
-          <Animated.View
-            style={[
-              styles.actionsSection,
-              actionsAnimStyle,
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.button,
-                loading &&
-                styles.buttonDisabled,
-              ]}
-              onPress={handleRegister}
-              disabled={loading}
-              activeOpacity={0.7}
-            >
-              <View
-                pointerEvents="none"
-                style={styles.buttonShimmer}
-              />
-
-              {loading ? (
-                <>
-                  <ActivityIndicator
-                    size="small"
-                    color={Colors.white}
-                    style={
-                      styles.buttonSpinner
-                    }
-                  />
-
-                  <Text
-                    style={styles.buttonText}
-                  >
-                    Creating Hero...
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text
-                    style={styles.buttonText}
-                  >
-                    Create Hero
-                  </Text>
-
-                  <Text
-                    style={styles.buttonIcon}
-                  >
-                    ⚔️
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.dividerRow}>
-              <View
-                style={styles.dividerLine}
-              />
-
-              <Text
-                style={styles.dividerText}
-              >
-                or
-              </Text>
-
-              <View
-                style={styles.dividerLine}
-              />
-            </View>
-
-            <View style={styles.footerRow}>
-              <Text
-                style={styles.footerNote}
-              >
-                Already have an account?
-              </Text>
-
+          <View style={styles.card}>
+            {/* HEADER */}
+            <Animated.View style={[styles.headerSection, headerAnimStyle]}>
               <TouchableOpacity
-                onPress={() =>
-                  router.push("/login")
-                }
-                activeOpacity={0.7}
+                style={styles.backButton}
+                onPress={() => router.push("/login")}
+                activeOpacity={0.8}
               >
-                <Text
-                  style={styles.footerLink}
-                >
-                  Sign In
-                </Text>
+                <ButtonText style={styles.backLabel}>← Back to Sign In</ButtonText>
               </TouchableOpacity>
-            </View>
-          </Animated.View>
+
+              <HeadingText style={styles.eyebrow}>✦ JOIN THE REALM ✦</HeadingText>
+              <TitleText variant="hero" style={styles.title}>
+                Create Your Hero
+              </TitleText>
+              <BodyText style={styles.subtitle}>Begin your legendary RPG journey.</BodyText>
+            </Animated.View>
+
+            {/* FORM */}
+            <Animated.View style={[styles.formSection, formAnimStyle]}>
+              <InputField
+                id="heroName"
+                placeholder="Hero Name"
+                value={heroName}
+                onChangeText={setHeroName}
+                icon="🧙"
+                focusedId={focusedId}
+                onFocus={setFocusedId}
+                onBlur={() => setFocusedId(null)}
+                autoCapitalize="words"
+              />
+
+              <InputField
+                id="email"
+                placeholder="Email Address"
+                value={email}
+                onChangeText={setEmail}
+                icon="✉️"
+                focusedId={focusedId}
+                onFocus={setFocusedId}
+                onBlur={() => setFocusedId(null)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <InputField
+                id="password"
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                icon="🔒"
+                focusedId={focusedId}
+                onFocus={setFocusedId}
+                onBlur={() => setFocusedId(null)}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <InputField
+                id="confirmPassword"
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                icon="🛡️"
+                focusedId={focusedId}
+                onFocus={setFocusedId}
+                onBlur={() => setFocusedId(null)}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              {confirmPassword.length > 0 && (
+                <BodyText
+                  style={[
+                    styles.matchHint,
+                    password === confirmPassword
+                      ? styles.matchHintSuccess
+                      : styles.matchHintError,
+                  ]}
+                >
+                  {password === confirmPassword
+                    ? "✓ Passwords match"
+                    : "✗ Passwords do not match"}
+                </BodyText>
+              )}
+            </Animated.View>
+
+            {/* ACTIONS */}
+            <Animated.View style={[styles.actionsSection, actionsAnimStyle]}>
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleRegister}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ButtonText style={styles.buttonText}>Forging Hero...</ButtonText>
+                  </View>
+                ) : (
+                  <ButtonText style={styles.buttonText}>Create Hero ⚔️</ButtonText>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <BodyText style={styles.dividerText}>or</BodyText>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.footerRow}>
+                <BodyText style={styles.footerNote}>Already a hero? </BodyText>
+                <TouchableOpacity onPress={() => router.push("/login")} activeOpacity={0.8}>
+                  <ButtonText style={styles.footerLink}>Sign In →</ButtonText>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -609,19 +394,31 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: RPGTheme.colors.bg,
   },
-
   scrollContent: {
     flexGrow: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
   },
-
   container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xxl,
-    overflow: "hidden",
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "center",
+  },
+  card: {
+    width: "100%",
+    backgroundColor: RPGTheme.colors.primaryCard,
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1.5,
+    borderColor: RPGTheme.colors.goldBorder,
+    shadowColor: RPGTheme.colors.purplePrimary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
   },
 
   glowTopLeft: {
@@ -631,10 +428,9 @@ const styles = StyleSheet.create({
     width: 260,
     height: 260,
     borderRadius: 130,
-    backgroundColor: Colors.primary,
-    opacity: 0.1,
+    backgroundColor: RPGTheme.colors.purplePrimary,
+    opacity: 0.12,
   },
-
   glowBottomRight: {
     position: "absolute",
     bottom: -120,
@@ -642,220 +438,141 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 110,
-    backgroundColor: Colors.secondary,
-    opacity: 0.08,
+    backgroundColor: RPGTheme.colors.gold,
+    opacity: 0.1,
   },
 
   headerSection: {
-    paddingTop: Spacing.xxl,
     alignItems: "center",
-    marginBottom: Spacing.xl,
+    marginBottom: 20,
   },
-
   backButton: {
     alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    marginBottom: Spacing.xl,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surface,
+    marginBottom: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: RPGTheme.colors.secondaryCard,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: RPGTheme.colors.cardBorder,
   },
-
-  backArrow: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.lg,
-    lineHeight: FontSize.lg + 4,
-  },
-
   backLabel: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.sm,
-    fontWeight: "600",
+    color: RPGTheme.colors.purpleSecondary,
+    fontSize: 11,
+    fontWeight: "800",
   },
-
   eyebrow: {
-    color: Colors.gold,
-    fontSize: FontSize.xs,
-    fontWeight: "700",
-    letterSpacing: 3,
-    textAlign: "center",
-    marginBottom: Spacing.sm,
-  },
-
-  title: {
-    color: Colors.white,
-    fontSize: FontSize.xxl,
+    color: RPGTheme.colors.gold,
+    fontSize: 10,
     fontWeight: "900",
-    textAlign: "center",
-    letterSpacing: -0.5,
-    marginBottom: Spacing.sm,
+    letterSpacing: 2,
+    marginBottom: 4,
   },
-
+  title: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 24,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
   subtitle: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.sm,
-    textAlign: "center",
-    lineHeight: 22,
+    color: RPGTheme.colors.textSecondary,
+    fontSize: 12,
   },
 
   formSection: {
     width: "100%",
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
+    gap: 12,
+    marginBottom: 20,
   },
-
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
+    backgroundColor: RPGTheme.colors.secondaryCard,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: Spacing.md,
-    height: 56,
+    borderColor: RPGTheme.colors.cardBorder,
+    paddingHorizontal: 14,
+    height: 52,
   },
-
   inputWrapperFocused: {
-    borderColor: Colors.primary,
-    shadowColor: Colors.primary,
-    shadowOffset: {
-      width: 0,
-      height: 0,
-    },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 5,
+    borderColor: RPGTheme.colors.purplePrimary,
   },
-
   inputIcon: {
-    fontSize: FontSize.md,
-    marginRight: Spacing.sm,
-    lineHeight: 24,
+    fontSize: 16,
+    marginRight: 10,
   },
-
   input: {
     flex: 1,
-    color: Colors.white,
-    fontSize: FontSize.md,
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 14,
+    fontFamily: RPGTheme.fonts.body,
     height: "100%",
   },
-
   matchHint: {
-    fontSize: FontSize.xs,
-    fontWeight: "600",
-    marginTop: -Spacing.xs,
-    paddingHorizontal: Spacing.xs,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: -4,
   },
-
   matchHintSuccess: {
-    color: Colors.success,
+    color: RPGTheme.colors.success,
   },
-
   matchHintError: {
-    color: Colors.danger,
+    color: RPGTheme.colors.danger,
   },
 
   actionsSection: {
     width: "100%",
-    alignItems: "center",
-    gap: Spacing.md,
   },
-
   button: {
-    width: "100%",
-    backgroundColor: Colors.primary,
-    height: 56,
-    borderRadius: BorderRadius.lg,
-    flexDirection: "row",
+    backgroundColor: RPGTheme.colors.purplePrimary,
+    height: 52,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    position: "relative",
-
-    shadowColor: Colors.primary,
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
+    borderWidth: 1,
+    borderColor: RPGTheme.colors.purpleSecondary,
   },
-
   buttonDisabled: {
-    opacity: 0.65,
+    opacity: 0.6,
   },
-
-  buttonShimmer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "40%",
-    height: "100%",
-    backgroundColor: Colors.white,
-    opacity: 0.07,
-    transform: [
-      {
-        skewX: "-20deg",
-      },
-    ],
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-
-  buttonSpinner: {
-    marginRight: Spacing.sm,
-  },
-
   buttonText: {
-    color: Colors.white,
-    fontSize: FontSize.md,
-    fontWeight: "800",
-    letterSpacing: 0.8,
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
   },
-
-  buttonIcon: {
-    fontSize: FontSize.md,
-    marginLeft: Spacing.sm,
-    lineHeight: 24,
-  },
-
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    width: "100%",
-    gap: Spacing.sm,
+    marginVertical: 18,
   },
-
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: Colors.border,
+    backgroundColor: RPGTheme.colors.cardBorder,
   },
-
   dividerText: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.xs,
-    fontWeight: "600",
+    color: RPGTheme.colors.textMuted,
+    marginHorizontal: 12,
+    fontSize: 10,
+    fontWeight: "800",
   },
-
   footerRow: {
     flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    gap: Spacing.xs,
   },
-
   footerNote: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.sm,
+    color: RPGTheme.colors.textSecondary,
+    fontSize: 13,
   },
-
   footerLink: {
-    color: Colors.secondary,
-    fontSize: FontSize.sm,
-    fontWeight: "700",
+    color: RPGTheme.colors.goldLight,
+    fontWeight: "900",
+    fontSize: 13,
   },
 });

@@ -1,5 +1,12 @@
 import { auth, db } from "@/lib/firebase";
 import { router } from "expo-router";
+import { RPGTheme } from "../utils/rpgTheme";
+import RPGHeader from "@/components/RPGHeader";
+import {
+  DEFAULT_SKILLS,
+  HeroSkills,
+  getSkillForCategory,
+} from "../utils/skills";
 
 import {
   collection,
@@ -11,11 +18,12 @@ import {
   where,
 } from "firebase/firestore";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Platform,
   ScrollView,
   StyleSheet,
@@ -37,6 +45,7 @@ type Quest = {
   description: string;
   xp: number;
   difficulty: Difficulty;
+  category?: string;
   custom?: boolean;
 };
 
@@ -117,6 +126,7 @@ const DAILY_QUESTS: Quest[] = [
     description: "Exercise for at least 30 minutes",
     xp: 20,
     difficulty: "Medium",
+    category: "Fitness",
   },
 
   {
@@ -126,6 +136,7 @@ const DAILY_QUESTS: Quest[] = [
     description: "Focus and study for 1 hour",
     xp: 30,
     difficulty: "Hard",
+    category: "Study",
   },
 
   {
@@ -135,6 +146,7 @@ const DAILY_QUESTS: Quest[] = [
     description: "Drink enough water throughout the day",
     xp: 10,
     difficulty: "Easy",
+    category: "Health",
   },
 
   {
@@ -144,6 +156,7 @@ const DAILY_QUESTS: Quest[] = [
     description: "Meditate or reflect for 10 minutes",
     xp: 15,
     difficulty: "Easy",
+    category: "Meditation",
   },
 ];
 
@@ -202,8 +215,12 @@ export default function QuestsScreen() {
     setCustomQuests,
   ] = useState<Quest[]>([]);
 
-  const [totalXP, setTotalXP] =
+  const [coins, setCoins] =
     useState(0);
+
+  const [xp, setXP] = useState(0);
+  const [level, setLevel] = useState(1);
+  const [totalXP, setTotalXP] = useState(0);
 
   const [streak, setStreak] =
     useState(0);
@@ -414,8 +431,15 @@ export default function QuestsScreen() {
               );
             }
 
+            setXP(data.xp ?? 0);
+            setLevel(data.level ?? 1);
+
             setTotalXP(
               data.totalXP ?? 0
+            );
+
+            setCoins(
+              data.coins ?? 0
             );
 
             setStreak(
@@ -668,14 +692,10 @@ export default function QuestsScreen() {
               // XP + LEVEL
               // ==================================
 
-              const currentXP =
-                data.xp ?? 0;
-
-              const currentTotalXP =
-                data.totalXP ?? 0;
-
-              const currentLevel =
-                data.level ?? 1;
+              const currentXP = data.xp ?? 0;
+              const currentLevel = data.level ?? 1;
+              const currentTotalXP = data.totalXP ?? 0;
+              const currentCoins = data.coins ?? 0;
 
               let newXP =
                 currentXP +
@@ -688,12 +708,18 @@ export default function QuestsScreen() {
                 newXP >= 100
               ) {
                 newXP -= 100;
-
                 newLevel += 1;
               }
 
+              const earnedPoints = newLevel > currentLevel ? newLevel - currentLevel : 0;
+              const currentSkillPoints = data.skillPoints ?? (data.level ? data.level - 1 : 0);
+              const newSkillPoints = currentSkillPoints + earnedPoints;
+
               const newTotalXP =
-                currentTotalXP +
+                currentTotalXP + quest.xp;
+
+              const newCoins =
+                currentCoins +
                 quest.xp;
 
               // ==================================
@@ -846,6 +872,29 @@ export default function QuestsScreen() {
                 );
 
               // ==================================
+              // UPDATE HERO SKILLS
+              // ==================================
+
+              const currentSkills: HeroSkills = {
+                ...DEFAULT_SKILLS,
+                ...(data.skills || {}),
+              };
+
+              const targetSkill = getSkillForCategory(
+                (quest as any).category || "",
+                quest.title || ""
+              );
+
+              const skillIncrement = quest.xp || 10;
+
+              const updatedSkills: HeroSkills = {
+                ...currentSkills,
+                [targetSkill]:
+                  (currentSkills[targetSkill] ?? 0) +
+                  skillIncrement,
+              };
+
+              // ==================================
               // UPDATE USER
               // ==================================
 
@@ -864,8 +913,14 @@ export default function QuestsScreen() {
                   totalXP:
                     newTotalXP,
 
+                  coins:
+                    newCoins,
+
                   level:
                     newLevel,
+
+                  skillPoints:
+                    newSkillPoints,
 
                   totalQuestsCompleted:
                     newQuestCount,
@@ -873,64 +928,15 @@ export default function QuestsScreen() {
                   streak:
                     newStreak,
 
+                  skills:
+                    updatedSkills,
+
                   lastActiveDate:
                     today,
 
                   unlockedAchievements,
 
                   updatedAt:
-                    serverTimestamp(),
-                }
-              );
-
-              // ==================================
-              // QUEST HISTORY
-              // ==================================
-
-              const safeQuestId =
-                quest.id.replace(
-                  /[^a-zA-Z0-9_-]/g,
-                  "_"
-                );
-
-              const historyRef =
-                doc(
-                  db,
-                  "users",
-                  user.uid,
-                  "questHistory",
-                  `${today}_${safeQuestId}`
-                );
-
-              transaction.set(
-                historyRef,
-                {
-                  questId:
-                    quest.id,
-
-                  title:
-                    quest.title,
-
-                  description:
-                    quest.description,
-
-                  emoji:
-                    quest.emoji,
-
-                  difficulty:
-                    quest.difficulty,
-
-                  xpEarned:
-                    quest.xp,
-
-                  custom:
-                    quest.custom ??
-                    false,
-
-                  completedDate:
-                    today,
-
-                  completedAt:
                     serverTimestamp(),
                 }
               );
@@ -945,6 +951,7 @@ export default function QuestsScreen() {
                 newLevel,
                 newStreak,
                 newTotalXP,
+                newCoins,
               };
             }
           );
@@ -1028,7 +1035,10 @@ export default function QuestsScreen() {
 
           showMessage(
             "🏆 Achievement Unlocked!",
-            `Quest Complete: ${quest.title}\n+${quest.xp} XP\n\n${achievementMessage}`
+            `Quest Complete: ${quest.title}
+            ⭐ +${quest.xp} XP
+            🪙 +${quest.xp} Coins
+            ${achievementMessage}`
           );
         } else {
           // ======================================
@@ -1037,7 +1047,9 @@ export default function QuestsScreen() {
 
           showMessage(
             "Quest Complete! ⚔️",
-            `${quest.title}\n\nYou earned +${quest.xp} XP`
+            `${quest.title}
+          ⭐ +${quest.xp} XP
+          🪙 +${quest.xp} Coins`
           );
         }
       } catch (
@@ -1116,214 +1128,194 @@ export default function QuestsScreen() {
 
   const QuestCard = ({
     quest,
+    list,
   }: {
     quest: Quest;
+    list: Quest[];
   }) => {
-    const completed =
-      completedQuests.includes(
-        quest.id
-      );
+    const completed = completedQuests.includes(quest.id);
 
-    const isCompleting =
-      completingId ===
-      quest.id;
+    const firstIncompleteIndex = list.findIndex(
+      (q) => !completedQuests.includes(q.id)
+    );
+    const questIndex = list.findIndex((q) => q.id === quest.id);
+
+    const isActive =
+      !completed &&
+      firstIncompleteIndex !== -1 &&
+      questIndex === firstIncompleteIndex;
+
+    const isLocked =
+      !completed &&
+      firstIncompleteIndex !== -1 &&
+      questIndex > firstIncompleteIndex;
+
+    const isCompleting = completingId === quest.id;
+
+    const unlockAnim = useRef(new Animated.Value(isActive ? 1 : 0.95)).current;
+
+    useEffect(() => {
+      if (isActive) {
+        Animated.spring(unlockAnim, {
+          toValue: 1,
+          friction: 4,
+          tension: 40,
+          useNativeDriver: true,
+        }).start();
+      } else {
+        Animated.timing(unlockAnim, {
+          toValue: 0.96,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, [isActive]);
 
     return (
-      <View
+      <Animated.View
         style={[
           styles.questCard,
-
-          completed &&
-          styles.completedCard,
-
-          quest.custom &&
-          styles.customQuestCard,
+          completed && styles.completedCard,
+          isActive && styles.activeQuestCard,
+          isLocked && styles.lockedQuestCard,
+          quest.custom && styles.customQuestCard,
+          { transform: [{ scale: unlockAnim }] },
         ]}
       >
-        {quest.custom && (
-          <View
-            style={
-              styles.customLabel
-            }
-          >
-            <Text
-              style={
-                styles.customLabelText
-              }
-            >
-              CUSTOM QUEST
+        {/* BADGES HEADER ROW */}
+        <View style={styles.cardBadgeRow}>
+          {quest.custom && (
+            <View style={styles.customLabel}>
+              <Text style={styles.customLabelText}>CUSTOM QUEST</Text>
+            </View>
+          )}
+
+          {isActive && (
+            <View style={styles.activeLabel}>
+              <Text style={styles.activeLabelText}>⚡ ACTIVE QUEST</Text>
+            </View>
+          )}
+
+          {isLocked && (
+            <View style={styles.lockedLabel}>
+              <Text style={styles.lockedLabelText}>🔒 LOCKED</Text>
+            </View>
+          )}
+
+          {completed && (
+            <View style={styles.completedLabelBadge}>
+              <Text style={styles.completedLabelBadgeText}>✓ COMPLETED</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.questTop}>
+          <View style={[styles.questIcon, isLocked && styles.lockedQuestIcon]}>
+            <Text style={styles.questEmoji}>
+              {completed ? "✅" : isLocked ? "🔒" : quest.emoji}
             </Text>
           </View>
-        )}
 
-        <View
-          style={styles.questTop}
-        >
-          <View
-            style={
-              styles.questIcon
-            }
-          >
-            <Text
-              style={
-                styles.questEmoji
-              }
-            >
-              {completed
-                ? "✅"
-                : quest.emoji}
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.questInformation
-            }
-          >
+          <View style={styles.questInformation}>
             <Text
               style={[
                 styles.questTitle,
-
-                completed &&
-                styles.completedQuestTitle,
+                completed && styles.completedQuestTitle,
+                isLocked && styles.lockedQuestTitle,
               ]}
             >
               {quest.title}
             </Text>
 
             <Text
-              style={
-                styles.questDescription
-              }
+              style={[
+                styles.questDescription,
+                isLocked && styles.lockedQuestDescription,
+              ]}
             >
               {quest.description}
             </Text>
           </View>
         </View>
 
-        <View
-          style={
-            styles.questMeta
-          }
-        >
-          <View
-            style={
-              styles.badges
-            }
-          >
-            <View
-              style={
-                styles.difficultyBadge
-              }
-            >
-              <Text
-                style={
-                  styles.difficultyText
-                }
-              >
-                {quest.difficulty}
-              </Text>
+        <View style={styles.questMeta}>
+          <View style={styles.badges}>
+            <View style={styles.difficultyBadge}>
+              <Text style={styles.difficultyText}>{quest.difficulty}</Text>
             </View>
 
-            <View
-              style={
-                styles.xpBadge
-              }
-            >
-              <Text
-                style={
-                  styles.xpText
-                }
-              >
-                +{quest.xp} XP
-              </Text>
+            <View style={styles.xpBadge}>
+              <Text style={styles.xpText}>+{quest.xp} XP</Text>
             </View>
           </View>
 
-          <View
-            style={
-              styles.actionButtons
-            }
-          >
-            {quest.custom &&
-              !completed && (
-                <TouchableOpacity
-                  style={
-                    styles.editButton
-                  }
-                  activeOpacity={
-                    0.75
-                  }
-                  onPress={() => {
-                    const firestoreId =
-                      quest.id.replace(
-                        "custom-",
-                        ""
-                      );
-
-                    router.push({
-                      pathname:
-                        "/edit-quest",
-
-                      params: {
-                        id: firestoreId,
-                      },
-                    });
-                  }}
-                >
-                  <Text
-                    style={
-                      styles.editButtonText
-                    }
-                  >
-                    Edit
-                  </Text>
-                </TouchableOpacity>
-              )}
+          <View style={styles.actionButtons}>
+            {quest.custom && !completed && !isLocked && (
+              <TouchableOpacity
+                style={styles.editButton}
+                activeOpacity={0.75}
+                onPress={() => {
+                  const firestoreId = quest.id.replace("custom-", "");
+                  router.push({
+                    pathname: "/edit-quest",
+                    params: { id: firestoreId },
+                  });
+                }}
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
-              disabled={
-                completed ||
-                isCompleting
-              }
-              onPress={() =>
-                completeQuest(
-                  quest
-                )
-              }
-              activeOpacity={
-                0.75
-              }
+              disabled={completed || isCompleting || isLocked}
+              onPress={() => {
+                if (isLocked) {
+                  showMessage(
+                    "🔒 Locked Quest",
+                    "Complete the current quest to unlock this quest."
+                  );
+                  return;
+                }
+                completeQuest(quest);
+              }}
+              activeOpacity={0.75}
               style={[
                 styles.completeButton,
-
-                completed &&
-                styles.completedButton,
+                completed && styles.completedButton,
+                isActive && styles.activeCompleteButton,
+                isLocked && styles.lockedCompleteButton,
               ]}
             >
               {isCompleting ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#FFFFFF"
-                />
+                <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text
                   style={[
                     styles.completeButtonText,
-
-                    completed &&
-                    styles.completedButtonText,
+                    completed && styles.completedButtonText,
+                    isLocked && styles.lockedCompleteButtonText,
                   ]}
                 >
                   {completed
                     ? "Completed ✓"
-                    : "Complete"}
+                    : isLocked
+                    ? "🔒 Locked"
+                    : "Complete ⚔️"}
                 </Text>
               )}
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+
+        {/* LOCKED BANNER FOOTER */}
+        {isLocked && (
+          <View style={styles.lockedBannerContainer}>
+            <Text style={styles.lockedBannerText}>
+              Complete the current quest to unlock this quest.
+            </Text>
+          </View>
+        )}
+      </Animated.View>
     );
   };
 
@@ -1362,16 +1354,11 @@ export default function QuestsScreen() {
   // ============================================
 
   return (
-    <View
-      style={styles.screen}
-    >
+    <View style={styles.screen}>
+      <RPGHeader title="📜 Quest Board" />
       <ScrollView
-        contentContainerStyle={
-          styles.container
-        }
-        showsVerticalScrollIndicator={
-          false
-        }
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
       >
         {/* HEADER */}
 
@@ -1399,132 +1386,69 @@ export default function QuestsScreen() {
           </Text>
         </View>
 
-        {/* STREAK */}
+        {/* STREAK & PROGRESS CARD */}
 
-        <View
-          style={
-            styles.streakCard
-          }
-        >
-          <View>
-            <Text
-              style={
-                styles.streakLabel
-              }
-            >
-              CURRENT STREAK
-            </Text>
-
-            <Text
-              style={
-                styles.streakValue
-              }
-            >
-              🔥 {streak}{" "}
-              {streak === 1
-                ? "Day"
-                : "Days"}
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.totalXPContainer
-            }
-          >
-            <Text
-              style={
-                styles.totalXPLabel
-              }
-            >
-              TOTAL XP
-            </Text>
-
-            <Text
-              style={
-                styles.totalXPValue
-              }
-            >
-              ⭐ {totalXP}
-            </Text>
-          </View>
-        </View>
-
-        {/* PROGRESS */}
-
-        <View
-          style={
-            styles.progressCard
-          }
-        >
-          <View
-            style={
-              styles.progressHeader
-            }
-          >
+        <View style={styles.streakCard}>
+          {/* TOP STATS ROW */}
+          <View style={styles.streakTopRow}>
             <View>
-              <Text
-                style={
-                  styles.progressLabel
-                }
-              >
-                DAILY PROGRESS
+              <Text style={styles.streakLabel}>
+                CURRENT STREAK
               </Text>
 
-              <Text
-                style={
-                  styles.progressValue
-                }
-              >
-                {
-                  completedDaily.length
-                }
-                /
-                {
-                  DAILY_QUESTS.length
-                }{" "}
-                completed
+              <Text style={styles.streakValue}>
+                🔥 {streak}{" "}
+                {streak === 1
+                  ? "Day"
+                  : "Days"}
               </Text>
             </View>
 
-            <Text
-              style={
-                styles.earnedXP
-              }
-            >
-              +{earnedToday} XP
+            <View style={{ alignItems: "flex-end" }}>
+              <View style={styles.inlineStatRow}>
+                <View style={{ alignItems: "flex-end", marginRight: 14 }}>
+                  <Text style={styles.totalXPLabel}>
+                    TOTAL XP
+                  </Text>
+                  <Text style={styles.totalXPValue}>
+                    ⭐ {totalXP}
+                  </Text>
+                </View>
+
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={styles.totalXPLabel}>
+                    COINS
+                  </Text>
+                  <Text style={styles.totalXPValue}>
+                    🪙 {coins}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* PROGRESS TRACK SECTION */}
+          <View style={styles.streakProgressSection}>
+            <View style={styles.progressTrack}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${dailyProgress}%`,
+                  },
+                ]}
+              />
+            </View>
+
+            <Text style={styles.remainingText}>
+              {remainingDaily === 0
+                ? "All daily quests completed! 🏆"
+                : `${remainingDaily} daily ${remainingDaily === 1
+                  ? "quest"
+                  : "quests"
+                } remaining`}
             </Text>
           </View>
-
-          <View
-            style={
-              styles.progressTrack
-            }
-          >
-            <View
-              style={[
-                styles.progressFill,
-
-                {
-                  width:
-                    `${dailyProgress}%`,
-                },
-              ]}
-            />
-          </View>
-
-          <Text
-            style={
-              styles.remainingText
-            }
-          >
-            {remainingDaily === 0
-              ? "All daily quests completed! 🏆"
-              : `${remainingDaily} daily ${remainingDaily === 1
-                ? "quest"
-                : "quests"
-              } remaining`}
-          </Text>
         </View>
 
         {/* DAILY QUESTS */}
@@ -1558,6 +1482,7 @@ export default function QuestsScreen() {
             <QuestCard
               key={quest.id}
               quest={quest}
+              list={DAILY_QUESTS}
             />
           )
         )}
@@ -1661,6 +1586,7 @@ export default function QuestsScreen() {
               <QuestCard
                 key={quest.id}
                 quest={quest}
+                list={customQuests}
               />
             )
           )
@@ -1804,6 +1730,7 @@ const styles =
 
     eyebrow: {
       color: "#A78BFA",
+      fontFamily: RPGTheme.fonts.body,
       fontSize: 11,
       fontWeight: "800",
       letterSpacing: 2,
@@ -1812,6 +1739,7 @@ const styles =
 
     title: {
       color: "#FFFFFF",
+      fontFamily: RPGTheme.fonts.heading,
       fontSize: 28,
       fontWeight: "900",
       marginBottom: 7,
@@ -1819,6 +1747,7 @@ const styles =
 
     subtitle: {
       color: "#94A3B8",
+      fontFamily: RPGTheme.fonts.body,
       fontSize: 13,
       lineHeight: 20,
     },
@@ -1831,11 +1760,24 @@ const styles =
         "#92400E",
       borderRadius: 18,
       padding: 17,
+      marginBottom: 18,
+    },
+
+    streakTopRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
       marginBottom: 14,
+    },
+
+    inlineStatRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent:
-        "space-between",
+    },
+
+    streakProgressSection: {
+      width: "100%",
+      marginTop: 2,
     },
 
     streakLabel: {
@@ -1848,6 +1790,7 @@ const styles =
 
     streakValue: {
       color: "#FFFFFF",
+      fontFamily: RPGTheme.fonts.stats,
       fontSize: 20,
       fontWeight: "900",
     },
@@ -1858,6 +1801,7 @@ const styles =
 
     totalXPLabel: {
       color: "#F59E0B",
+      fontFamily: RPGTheme.fonts.body,
       fontSize: 8,
       fontWeight: "800",
       letterSpacing: 1,
@@ -1866,6 +1810,7 @@ const styles =
 
     totalXPValue: {
       color: "#FFFFFF",
+      fontFamily: RPGTheme.fonts.stats,
       fontSize: 16,
       fontWeight: "900",
     },
@@ -1968,9 +1913,70 @@ const styles =
     },
 
     completedCard: {
-      opacity: 0.68,
+      opacity: 0.75,
       borderColor:
-        "#166534",
+        "#059669",
+    },
+
+    activeQuestCard: {
+      borderColor: "#7C3AED",
+      borderWidth: 2,
+      backgroundColor: "#1E1B4B",
+    },
+
+    lockedQuestCard: {
+      opacity: 0.55,
+      backgroundColor: "#0B1120",
+      borderColor: "#1E293B",
+    },
+
+    cardBadgeRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginBottom: 10,
+    },
+
+    activeLabel: {
+      backgroundColor: "#7C3AED",
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+
+    activeLabelText: {
+      color: "#FFFFFF",
+      fontSize: 8,
+      fontWeight: "900",
+      letterSpacing: 0.5,
+    },
+
+    lockedLabel: {
+      backgroundColor: "#334155",
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+
+    lockedLabelText: {
+      color: "#94A3B8",
+      fontSize: 8,
+      fontWeight: "900",
+      letterSpacing: 0.5,
+    },
+
+    completedLabelBadge: {
+      backgroundColor: "#059669",
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+
+    completedLabelBadgeText: {
+      color: "#FFFFFF",
+      fontSize: 8,
+      fontWeight: "900",
+      letterSpacing: 0.5,
     },
 
     customLabel: {
@@ -1979,16 +1985,15 @@ const styles =
       backgroundColor:
         "#312E81",
       paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 7,
-      marginBottom: 11,
+      paddingVertical: 3,
+      borderRadius: 6,
     },
 
     customLabelText: {
       color: "#C4B5FD",
-      fontSize: 7,
+      fontSize: 8,
       fontWeight: "900",
-      letterSpacing: 1,
+      letterSpacing: 0.5,
     },
 
     questTop: {
@@ -2018,6 +2023,7 @@ const styles =
 
     questTitle: {
       color: "#FFFFFF",
+      fontFamily: RPGTheme.fonts.heading,
       fontSize: 14,
       fontWeight: "800",
     },
@@ -2030,6 +2036,7 @@ const styles =
 
     questDescription: {
       color: "#94A3B8",
+      fontFamily: RPGTheme.fonts.body,
       fontSize: 10,
       lineHeight: 15,
       marginTop: 4,
@@ -2075,6 +2082,7 @@ const styles =
 
     xpText: {
       color: "#C4B5FD",
+      fontFamily: RPGTheme.fonts.stats,
       fontSize: 8,
       fontWeight: "900",
     },
@@ -2116,14 +2124,60 @@ const styles =
         "#14532D",
     },
 
+    lockedQuestIcon: {
+      backgroundColor: "#1E293B",
+      opacity: 0.7,
+    },
+
+    lockedQuestTitle: {
+      color: "#64748B",
+    },
+
+    lockedQuestDescription: {
+      color: "#475569",
+    },
+
+    activeCompleteButton: {
+      backgroundColor: "#7C3AED",
+      borderWidth: 1,
+      borderColor: "#A78BFA",
+    },
+
+    lockedCompleteButton: {
+      backgroundColor: "#1E293B",
+      borderColor: "#334155",
+      borderWidth: 1,
+      opacity: 0.6,
+    },
+
     completeButtonText: {
       color: "#FFFFFF",
+      fontFamily: RPGTheme.fonts.button,
       fontSize: 9,
       fontWeight: "900",
     },
 
     completedButtonText: {
       color: "#86EFAC",
+    },
+
+    lockedCompleteButtonText: {
+      color: "#64748B",
+    },
+
+    lockedBannerContainer: {
+      marginTop: 12,
+      paddingTop: 10,
+      borderTopWidth: 1,
+      borderTopColor: "rgba(51, 65, 85, 0.4)",
+      alignItems: "center",
+    },
+
+    lockedBannerText: {
+      color: "#F59E0B",
+      fontSize: 10,
+      fontWeight: "700",
+      textAlign: "center",
     },
 
     victoryCard: {

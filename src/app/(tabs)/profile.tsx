@@ -722,9 +722,7 @@ export default function ProfileScreen() {
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() =>
-              router.push(
-                "/character"
-              )
+              router.push("/achievements")
             }
           >
             <Text
