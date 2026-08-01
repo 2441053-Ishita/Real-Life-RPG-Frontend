@@ -6,7 +6,7 @@ import { StyleSheet, TouchableOpacity, View } from "react-native";
 import RPGDrawer from "./RPGDrawer";
 import { HeadingText, ButtonText, StatsText, AppText } from "./Typography";
 
-export default function RPGHeader({ title }: { title?: string }) {
+function RPGHeader({ title }: { title?: string }) {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [coins, setCoins] = useState(0);
   const [streak, setStreak] = useState(1);
@@ -64,6 +64,8 @@ export default function RPGHeader({ title }: { title?: string }) {
     </>
   );
 }
+
+export default React.memo(RPGHeader);
 
 const styles = StyleSheet.create({
   headerContainer: {

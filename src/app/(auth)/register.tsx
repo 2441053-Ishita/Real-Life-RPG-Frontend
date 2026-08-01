@@ -1,4 +1,5 @@
 import { auth, db } from "@/lib/firebase";
+import { initializeUserSchema } from "../utils/firestoreSchema";
 import { router } from "expo-router";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -179,51 +180,7 @@ export default function RegisterScreen() {
 
       const user = userCredential.user;
 
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        heroName: heroName.trim(),
-        email: email.trim().toLowerCase(),
-        class: "Paladin Adventurer",
-        level: 1,
-        xp: 0,
-        totalXP: 0,
-        coins: 0,
-        streak: 1,
-        skills: {
-          strength: 0,
-          intelligence: 0,
-          discipline: 0,
-          wisdom: 0,
-          vitality: 0,
-          creativity: 0,
-        },
-        inventory: [],
-        equipment: {
-          weapon: null,
-          helmet: null,
-          armor: null,
-          boots: null,
-          shield: null,
-          accessory: null,
-        },
-        currentChapter: 1,
-        unlockedChapters: [1],
-        completedChapters: [],
-        chapterBossesDefeated: {},
-        completedQuests: [],
-        totalQuestsCompleted: 0,
-        questDate: "",
-        lastActiveDate: "",
-        unlockedAchievements: [],
-        ownedTitles: ["novice"],
-        ownedThemes: ["purple"],
-        ownedAvatars: ["warrior"],
-        equippedTitle: "novice",
-        equippedTheme: "purple",
-        equippedAvatar: "warrior",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      await initializeUserSchema(user.uid, heroName.trim(), "warrior");
 
       if (Platform.OS === "web") {
         window.alert("Hero Created Successfully!");

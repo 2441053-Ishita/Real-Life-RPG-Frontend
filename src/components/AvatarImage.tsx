@@ -18,7 +18,7 @@ type AvatarImageProps = {
   showGlow?: boolean;
 };
 
-export default function AvatarImage({
+function AvatarImage({
   avatarUrl,
   equippedAvatar,
   size = 64,
@@ -28,7 +28,7 @@ export default function AvatarImage({
   const [error, setError] = useState(false);
 
   const matchedDefault = DEFAULT_AVATARS.find((a) => a.id === equippedAvatar);
-  const emoji = matchedDefault ? matchedDefault.emoji : "🧙";
+  const emoji = matchedDefault ? matchedDefault.emoji : "🛡️";
 
   const borderRadius = size / 2;
 
@@ -47,7 +47,7 @@ export default function AvatarImage({
       {avatarUrl && !error ? (
         <View style={styles.imageWrapper}>
           <Image
-            source={{ uri: avatarUrl }}
+            source={{ uri: avatarUrl, cache: "force-cache" } as any}
             style={{ width: size, height: size, borderRadius }}
             onLoadStart={() => setLoading(true)}
             onLoadEnd={() => setLoading(false)}
@@ -77,6 +77,8 @@ export default function AvatarImage({
     </View>
   );
 }
+
+export default React.memo(AvatarImage);
 
 const styles = StyleSheet.create({
   container: {

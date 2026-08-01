@@ -3,40 +3,40 @@ export const getHeroRank = (level: number) => {
         return {
             name: "Mythic",
             emoji: "🌌",
-            color: "#8B5CF6",
+            color: "#A855F7", // Glossy Purple
         };
 
     if (level >= 36)
         return {
             name: "Legend",
             emoji: "🐉",
-            color: "#F59E0B",
+            color: "#D4AF37", // Royal Gold
         };
 
     if (level >= 21)
         return {
             name: "Champion",
             emoji: "👑",
-            color: "#EAB308",
+            color: "#8B5CF6", // Royal Violet
         };
 
     if (level >= 11)
         return {
             name: "Knight",
             emoji: "🛡️",
-            color: "#3B82F6",
+            color: "#2563EB", // Royal Blue
         };
 
     if (level >= 6)
         return {
             name: "Warrior",
             emoji: "⚔️",
-            color: "#22C55E",
+            color: "#6366F1", // Glossy Indigo / Blue-Purple
         };
 
     return {
         name: "Rookie",
         emoji: "🥉",
-        color: "#94A3B8",
+        color: "#64748B", // Slate Blue
     };
 };

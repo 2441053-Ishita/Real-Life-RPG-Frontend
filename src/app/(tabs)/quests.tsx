@@ -7,6 +7,7 @@ import {
   HeroSkills,
   getSkillForCategory,
 } from "../utils/skills";
+import { calculateSkillTreeBonuses } from "../utils/skillTree";
 
 import {
   collection,
@@ -697,9 +698,14 @@ export default function QuestsScreen() {
               const currentTotalXP = data.totalXP ?? 0;
               const currentCoins = data.coins ?? 0;
 
+              // Calculate Skill Tree passive bonuses
+              const skillBonuses = calculateSkillTreeBonuses(data.skills || {});
+              const earnedXP = Math.round(quest.xp * (1 + (skillBonuses.xpBonusPct || 0) / 100));
+              const earnedCoins = Math.round(quest.xp * (1 + (skillBonuses.coinBonusPct || 0) / 100));
+
               let newXP =
                 currentXP +
-                quest.xp;
+                earnedXP;
 
               let newLevel =
                 currentLevel;
@@ -716,11 +722,11 @@ export default function QuestsScreen() {
               const newSkillPoints = currentSkillPoints + earnedPoints;
 
               const newTotalXP =
-                currentTotalXP + quest.xp;
+                currentTotalXP + earnedXP;
 
               const newCoins =
                 currentCoins +
-                quest.xp;
+                earnedCoins;
 
               // ==================================
               // LIFETIME QUEST COUNT
