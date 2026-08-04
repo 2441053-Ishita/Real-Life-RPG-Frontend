@@ -1,6 +1,6 @@
 import { auth, db } from "@/lib/firebase";
-import { getHeroRank } from "./utils/rank";
-import { RPGTheme } from "./utils/rpgTheme";
+import { getHeroRank } from "@/utils/rank";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 import AvatarImage from "@/components/AvatarImage";
 import { HeadingText, TitleText, BodyText, StatsText, ButtonText, AppText } from "@/components/Typography";

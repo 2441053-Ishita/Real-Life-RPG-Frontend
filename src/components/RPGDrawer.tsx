@@ -11,8 +11,8 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { getHeroRank } from "../app/utils/rank";
-import { RPGTheme } from "../app/utils/rpgTheme";
+import { getHeroRank } from "@/utils/rank";
+import { RPGTheme } from "@/utils/rpgTheme";
 import { HeadingText, TitleText, BodyText, StatsText, ButtonText, AppText } from "./Typography";
 
 import AvatarImage from "./AvatarImage";
@@ -102,9 +102,10 @@ export default function RPGDrawer({
     { title: "History", icon: "📖", route: "/quest-history" },
     { title: "Character", icon: "👤", route: "/character" },
     { title: "Inventory", icon: "🎒", route: "/inventory" },
+    { title: "Leaderboard", icon: "🏆", route: "/leaderboard" },
     { title: "Shop", icon: "🪙", route: "/shop" },
     { title: "Achievements", icon: "🏆", route: "/achievements" },
-    { title: "Boss Battles & Map", icon: "🗺️", route: "/chapters" },
+    { title: "Boss Battles & Map", icon: "🐉", route: "/boss-battle" },
     { title: "Settings & Preferences", icon: "⚙️", route: "/settings" },
   ];
 

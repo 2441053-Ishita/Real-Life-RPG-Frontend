@@ -19,8 +19,8 @@ import {
   SkillTreeNode,
   calculateSkillTreeBonuses,
   isSkillUnlocked,
-} from "./utils/skillTree";
-import { RPGTheme } from "./utils/rpgTheme";
+} from "@/utils/skillTree";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 import { HeadingText, TitleText, BodyText, StatsText, ButtonText, AppText } from "@/components/Typography";
 

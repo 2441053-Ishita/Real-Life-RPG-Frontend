@@ -6,6 +6,7 @@ export type ItemCategory =
   | "helmets"
   | "boots"
   | "shields"
+  | "accessories"
   | "potions"
   | "scrolls"
   | "special";
@@ -68,6 +69,7 @@ export const CATEGORY_LABELS: Record<ItemCategory | "all", string> = {
   helmets: "Helmets",
   boots: "Boots",
   shields: "Shields",
+  accessories: "Accessories",
   potions: "Potions",
   scrolls: "Scrolls",
   special: "Special Items",
@@ -80,6 +82,7 @@ export const CATEGORY_ICONS: Record<ItemCategory | "all", string> = {
   helmets: "🪖",
   boots: "🥾",
   shields: "🛡️",
+  accessories: "💍",
   potions: "🧪",
   scrolls: "📜",
   special: "✨",

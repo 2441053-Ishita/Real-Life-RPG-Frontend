@@ -1,6 +1,6 @@
 import React from "react";
 import { Text, TextProps, StyleSheet } from "react-native";
-import { RPGTheme } from "@/app/utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 
 export function AppText({ style, ...props }: TextProps) {
   return <Text style={[styles.body, style]} {...props} />;

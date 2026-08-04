@@ -113,7 +113,7 @@ export default function CreateQuestScreen() {
                 db,
                 "users",
                 user.uid,
-                "customQuests"
+                "quests"
             );
 
             await addDoc(customQuestsRef, {
@@ -127,6 +127,8 @@ export default function CreateQuestScreen() {
 
                 emoji:
                     selectedDifficulty.emoji,
+
+                custom: true,
 
                 active: true,
 
@@ -147,7 +149,11 @@ export default function CreateQuestScreen() {
                 `${cleanTitle} has been added to your quests.`
             );
 
-            router.back();
+            if (router.canGoBack()) {
+                router.back();
+            } else {
+                router.replace("/(tabs)/quests");
+            }
         } catch (error: any) {
             console.error(
                 "CREATE QUEST ERROR:",
@@ -178,7 +184,13 @@ export default function CreateQuestScreen() {
                 {/* HEADER */}
 
                 <TouchableOpacity
-                    onPress={() => router.back()}
+                    onPress={() => {
+                        if (router.canGoBack()) {
+                            router.back();
+                        } else {
+                            router.replace("/(tabs)/quests");
+                        }
+                    }}
                     style={styles.backButton}
                     activeOpacity={0.7}
                 >

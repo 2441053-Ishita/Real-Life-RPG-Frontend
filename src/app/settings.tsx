@@ -12,12 +12,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getHeroRank } from "./utils/rank";
-import { RPGTheme } from "./utils/rpgTheme";
+import { getHeroRank } from "@/utils/rank";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 import AvatarImage from "@/components/AvatarImage";
 import { HeadingText, TitleText, BodyText, StatsText, ButtonText, AppText } from "@/components/Typography";
-import { sendTestNotification, requestNotificationPermission } from "./utils/notifications";
+import { sendTestNotification, requestNotificationPermission, scheduleDailyNotifications, cancelAllReminders } from "@/utils/notifications";
 
 const REMINDER_TIMES = [
   { label: "8:00 AM", value: "08:00" },
@@ -109,9 +109,20 @@ export default function SettingsScreen() {
     };
     setSettings(newSettings);
 
+    if (newSettings.notifications) {
+      scheduleDailyNotifications(newSettings.reminderTime, hero.streak);
+    } else {
+      cancelAllReminders();
+    }
+
     try {
       await updateDoc(doc(db, "users", uid), {
         settings: newSettings,
+        notificationSettings: {
+          enabled: newSettings.notifications,
+          reminderTime: newSettings.reminderTime,
+          updatedAt: new Date().toISOString(),
+        },
       });
     } catch (e) {
       console.error("Failed to update user settings:", e);

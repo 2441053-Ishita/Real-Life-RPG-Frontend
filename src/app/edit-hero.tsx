@@ -1,6 +1,6 @@
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
+import ProfileService from "@/services/profileService";
 import { router } from "expo-router";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { RPGTheme } from "./utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import AvatarImage, { DEFAULT_AVATARS } from "@/components/AvatarImage";
 import { HeadingText, TitleText, BodyText, ButtonText, AppText } from "@/components/Typography";
 
@@ -50,18 +50,16 @@ export default function EditHeroScreen() {
           return;
         }
 
-        const userRef = doc(db, "users", user.uid);
-        const snapshot = await getDoc(userRef);
+        const data = await ProfileService.getProfile(user.uid);
 
-        if (snapshot.exists()) {
-          const data = snapshot.data();
+        if (data) {
           setHeroName(data.heroName || "Hero");
-          const currentClass = data.class;
+          const currentClass = data.heroClass || data.class;
           if (heroClasses.some((item) => item.id === currentClass)) {
             setSelectedClass(currentClass as HeroClass);
           }
-          setEquippedAvatar(data.equippedAvatar || "warrior");
-          setAvatarUrl(data.profile?.avatarUrl || data.avatarUrl || "");
+          setEquippedAvatar(data.avatar || data.equippedAvatar || "warrior");
+          setAvatarUrl(data.avatarUrl || "");
         }
       } catch (error: any) {
         console.error("LOAD HERO ERROR:", error);
@@ -98,18 +96,23 @@ export default function EditHeroScreen() {
         return;
       }
 
-      const userRef = doc(db, "users", user.uid);
-
-      await updateDoc(userRef, {
+      await ProfileService.updateProfile(user.uid, {
         heroName: cleanName,
+        heroClass: selectedClass,
         class: selectedClass,
+        avatar: equippedAvatar,
         equippedAvatar: equippedAvatar,
+        equippedAvatarId: equippedAvatar,
         avatarUrl: avatarUrl.trim() || null,
         "profile.avatarUrl": avatarUrl.trim() || null,
       });
 
       showMessage("Hero Updated! ⚔️", "Your hero profile and avatar have been updated!");
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)/profile");
+      }
     } catch (error: any) {
       console.error("UPDATE HERO ERROR:", error);
       showMessage("Update Failed", error?.message || "Unable to update your hero.");
@@ -131,7 +134,13 @@ export default function EditHeroScreen() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* BACK BUTTON */}
-        <TouchableOpacity style={styles.backButton} activeOpacity={0.7} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backButton} activeOpacity={0.7} onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(tabs)/profile");
+          }
+        }}>
           <ButtonText style={styles.backText}>← Back to Sanctuary</ButtonText>
         </TouchableOpacity>
 

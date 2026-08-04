@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Global Public Read-Only Catalogs
+    match /rewards/{rewardId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Admin console / seed script only
+    }
+
+    match /avatars/{avatarId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Admin console / seed script only
+    }
+
+    match /achievements/{achievementId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Admin console / seed script only
+    }
+
+    // Global Leaderboard (Public read, Owner sync update)
+    match /leaderboard/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // User Root Document
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId);
+      allow update, delete: if isOwner(userId);
+
+      // User Subcollections (Quests, Dailies, Inventory, Achievements, Notifications, History)
+      match /quests/{questId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /dailyQuests/{dailyId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /customQuests/{customId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /bossVictories/{bossId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /inventory/{itemId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /userAchievements/{achievementId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /achievements/{achievementId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /notifications/{notifId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /questHistory/{historyId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /history/{historyId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Guilds & Multiplayer (Future Expansion)
+    match /guilds/{guildId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+    }
+  }
+}

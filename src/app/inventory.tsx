@@ -1,6 +1,7 @@
 import { auth, db } from "@/lib/firebase";
+import InventoryService, { ALL_RPG_ITEMS } from "@/services/inventoryService";
 import { router } from "expo-router";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -29,8 +30,8 @@ import {
   calculateTotalEquipmentStats,
   getRarityBg,
   getRarityColor,
-} from "./utils/inventory";
-import { RPGTheme } from "./utils/rpgTheme";
+} from "@/utils/inventory";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 
 const CATEGORIES: (ItemCategory | "all")[] = [
@@ -40,6 +41,7 @@ const CATEGORIES: (ItemCategory | "all")[] = [
   "helmets",
   "boots",
   "shields",
+  "accessories",
   "potions",
   "scrolls",
   "special",
@@ -73,26 +75,85 @@ export default function InventoryScreen() {
       return;
     }
 
+    // Trigger milestone unlocks check
+    InventoryService.checkInventoryUnlocks(uid).catch(() => { });
+
     const userRef = doc(db, "users", uid);
-    const unsub = onSnapshot(
+    const userUnsub = onSnapshot(
       userRef,
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          const items =
-            Array.isArray(data.inventory) && data.inventory.length > 0
-              ? data.inventory
-              : INITIAL_STARTER_ITEMS;
-
           const eqState = {
             ...DEFAULT_EQUIPMENT,
             ...(data.equipment || {}),
           };
 
-          setInventory(items);
           setEquipment(eqState);
           setCoins(data.coins ?? 0);
         }
+      },
+      (error) => {
+        console.error("USER PROFILE FIRESTORE ERROR:", error);
+      }
+    );
+
+    const inventoryRef = collection(db, "users", uid, "inventory");
+    const inventoryUnsub = onSnapshot(
+      inventoryRef,
+      (snapshot) => {
+        const unlockedMap = new Map<string, any>();
+        snapshot.docs.forEach((docSnap) => {
+          unlockedMap.set(docSnap.id, docSnap.data());
+        });
+
+        // Map over ALL_RPG_ITEMS catalog so locked items are rendered in grey state
+        const combinedItems = ALL_RPG_ITEMS.map((catalogItem) => {
+          const unlockedData = unlockedMap.get(catalogItem.id);
+          const isUnlocked = Boolean(unlockedData);
+          return {
+            ...catalogItem,
+            unlocked: isUnlocked,
+            equipped: isUnlocked ? Boolean(unlockedData.equipped) : false,
+            unlockedAt: unlockedData?.unlockedAt ?? null,
+            value: catalogItem.value ?? 20,
+            statBonus: {
+              strength: catalogItem.attack,
+              defense: catalogItem.defense,
+              intelligence: catalogItem.intelligence,
+              vitality: catalogItem.vitality,
+            },
+          } as unknown as InventoryItem;
+        });
+
+        // Append any extra user items in Firestore not in ALL_RPG_ITEMS
+        snapshot.docs.forEach((docSnap) => {
+          if (!ALL_RPG_ITEMS.some((item) => item.id === docSnap.id)) {
+            const data = docSnap.data();
+            combinedItems.push({
+              id: docSnap.id,
+              name: data.name || "Custom Item",
+              description: data.description || "",
+              category: data.category || "special",
+              rarity: data.rarity || "Common",
+              icon: data.icon || "📦",
+              attack: Number(data.attack ?? 0),
+              defense: Number(data.defense ?? 0),
+              intelligence: Number(data.intelligence ?? 0),
+              vitality: Number(data.vitality ?? 0),
+              speed: Number(data.speed ?? 0),
+              slot: data.slot || null,
+              value: data.value ?? 10,
+              unlockRequirement: "Unlocked Item",
+              unlocked: true,
+              equipped: Boolean(data.equipped),
+              unlockedAt: data.unlockedAt,
+              statBonus: data.statBonus || {},
+            } as unknown as InventoryItem);
+          }
+        });
+
+        setInventory(combinedItems);
         setLoading(false);
       },
       (error) => {
@@ -101,7 +162,10 @@ export default function InventoryScreen() {
       }
     );
 
-    return () => unsub();
+    return () => {
+      userUnsub();
+      inventoryUnsub();
+    };
   }, [uid]);
 
   const statBonuses = useMemo(() => {
@@ -134,20 +198,23 @@ export default function InventoryScreen() {
   };
 
   const handleEquip = async (item: InventoryItem) => {
-    if (!uid || !item.slot) return;
+    if (!uid) return;
 
     try {
       setUpdating(true);
-      const slot = item.slot;
-      const newEquipment: EquipmentState = {
-        ...equipment,
-        [slot]: item,
-      };
+      await InventoryService.equipItem(uid, item.id);
 
-      const userRef = doc(db, "users", uid);
-      await updateDoc(userRef, {
-        equipment: newEquipment,
-      });
+      if (item.slot) {
+        const slot = item.slot;
+        const newEquipment: EquipmentState = {
+          ...equipment,
+          [slot]: item,
+        };
+        const userRef = doc(db, "users", uid);
+        await updateDoc(userRef, {
+          equipment: newEquipment,
+        }).catch(() => { });
+      }
 
       setSelectedItem(null);
       showToast("Item Equipped! 🛡️", `You equipped ${item.name}.`);
@@ -354,9 +421,10 @@ export default function InventoryScreen() {
           </View>
         ) : (
           <View style={styles.inventoryGrid}>
-            {filteredInventory.map((item) => {
-              const equipped = isItemEquipped(item);
-              const rarityColor = getRarityColor(item.rarity);
+            {filteredInventory.map((item: any) => {
+              const isLocked = item.unlocked === false;
+              const equipped = isItemEquipped(item) || item.equipped;
+              const rarityColor = isLocked ? "#64748B" : getRarityColor(item.rarity);
 
               return (
                 <TouchableOpacity
@@ -366,6 +434,7 @@ export default function InventoryScreen() {
                   style={[
                     styles.itemCard,
                     { borderColor: rarityColor },
+                    isLocked && { opacity: 0.6, backgroundColor: "#1E293B" },
                     equipped && styles.equippedCardHighlight,
                   ]}
                 >
@@ -375,19 +444,27 @@ export default function InventoryScreen() {
                     </View>
                   )}
 
-                  <View style={[styles.itemIconBg, { backgroundColor: getRarityBg(item.rarity) }]}>
+                  {isLocked && (
+                    <View style={[styles.equippedBadge, { backgroundColor: "#475569" }]}>
+                      <Text style={styles.equippedBadgeText}>🔒 LOCKED</Text>
+                    </View>
+                  )}
+
+                  <View style={[styles.itemIconBg, { backgroundColor: isLocked ? "rgba(100, 116, 139, 0.2)" : getRarityBg(item.rarity) }]}>
                     <Text style={styles.itemEmoji}>{item.icon}</Text>
                   </View>
 
-                  <Text style={styles.itemName} numberOfLines={1}>
+                  <Text style={[styles.itemName, isLocked && { color: "#94A3B8" }]} numberOfLines={1}>
                     {item.name}
                   </Text>
 
                   <View style={[styles.rarityBadge, { backgroundColor: rarityColor }]}>
-                    <Text style={styles.rarityText}>{item.rarity}</Text>
+                    <Text style={styles.rarityText}>{isLocked ? "LOCKED" : item.rarity}</Text>
                   </View>
 
-                  <Text style={styles.itemValueText}>🪙 {item.value}</Text>
+                  <Text style={{ fontSize: 10, color: "#94A3B8", marginTop: 4, fontWeight: "600" }}>
+                    {isLocked ? `🔒 ${item.unlockRequirement}` : `🪙 ${item.value ?? 20}`}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
@@ -419,7 +496,7 @@ export default function InventoryScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.modalTitle}>{selectedItem.name}</Text>
                     <Text style={{ color: getRarityColor(selectedItem.rarity), fontSize: 10, fontWeight: "900" }}>
-                      {selectedItem.rarity.toUpperCase()}
+                      {(selectedItem as any).unlocked === false ? "LOCKED ITEM" : selectedItem.rarity.toUpperCase()}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => setSelectedItem(null)}>
@@ -430,35 +507,51 @@ export default function InventoryScreen() {
                 <Text style={styles.modalDesc}>{selectedItem.description}</Text>
 
                 <View style={styles.modalActionsRow}>
-                  {selectedItem.slot && (
-                    isItemEquipped(selectedItem) ? (
+                  {(selectedItem as any).unlocked === false ? (
+                    <View style={{ width: "100%", alignItems: "center" }}>
+                      <Text style={{ color: "#F59E0B", fontWeight: "700", marginBottom: 8, fontSize: 12 }}>
+                        🔒 Requirement: {(selectedItem as any).unlockRequirement || "Reach Milestone"}
+                      </Text>
                       <TouchableOpacity
-                        disabled={updating}
-                        onPress={() => handleUnequip(selectedItem.slot!)}
-                        style={[styles.modalButton, { backgroundColor: RPGTheme.colors.danger }]}
+                        disabled={true}
+                        style={[styles.modalButton, { backgroundColor: "#475569", width: "100%" }]}
                       >
-                        <Text style={styles.modalButtonText}>Unequip Gear ❌</Text>
+                        <Text style={styles.modalButtonText}>🔒 Item Locked</Text>
                       </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        disabled={updating}
-                        onPress={() => handleEquip(selectedItem)}
-                        style={[styles.modalButton, { backgroundColor: RPGTheme.colors.purplePrimary }]}
-                      >
-                        <Text style={styles.modalButtonText}>Equip Gear 🛡️</Text>
-                      </TouchableOpacity>
-                    )
-                  )}
+                    </View>
+                  ) : (
+                    <>
+                      {selectedItem.slot && (
+                        isItemEquipped(selectedItem) ? (
+                          <TouchableOpacity
+                            disabled={updating}
+                            onPress={() => handleUnequip(selectedItem.slot!)}
+                            style={[styles.modalButton, { backgroundColor: RPGTheme.colors.danger }]}
+                          >
+                            <Text style={styles.modalButtonText}>Unequip Gear ❌</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            disabled={updating}
+                            onPress={() => handleEquip(selectedItem)}
+                            style={[styles.modalButton, { backgroundColor: RPGTheme.colors.purplePrimary }]}
+                          >
+                            <Text style={styles.modalButtonText}>Equip Gear 🛡️</Text>
+                          </TouchableOpacity>
+                        )
+                      )}
 
-                  <TouchableOpacity
-                    disabled={updating}
-                    onPress={() => handleSell(selectedItem)}
-                    style={[styles.modalButton, { backgroundColor: RPGTheme.colors.secondaryCard }]}
-                  >
-                    <Text style={styles.modalButtonText}>
-                      Sell (+{Math.round(selectedItem.value * 0.7)} 🪙)
-                    </Text>
-                  </TouchableOpacity>
+                      <TouchableOpacity
+                        disabled={updating}
+                        onPress={() => handleSell(selectedItem)}
+                        style={[styles.modalButton, { backgroundColor: RPGTheme.colors.secondaryCard }]}
+                      >
+                        <Text style={styles.modalButtonText}>
+                          Sell (+{Math.round(selectedItem.value * 0.7)} 🪙)
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </View>
               </>
             )}

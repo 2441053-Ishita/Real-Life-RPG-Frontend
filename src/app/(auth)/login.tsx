@@ -1,6 +1,5 @@
-import { auth } from "@/lib/firebase";
+import UserService from "@/services/userService";
 import { router } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
 import React, { useState } from "react";
 
 import {
@@ -12,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { RPGTheme } from "../utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import { HeadingText, TitleText, BodyText, ButtonText, AppText } from "@/components/Typography";
 
 export default function LoginScreen() {
@@ -36,7 +35,7 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      await UserService.signIn(email.trim(), password);
       router.replace("/(tabs)/home");
     } catch (error: any) {
       let message = "Unable to login. Please try again.";

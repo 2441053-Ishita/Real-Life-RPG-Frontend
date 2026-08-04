@@ -111,7 +111,11 @@ export default function EditQuestScreen() {
                     "Quest ID was not found."
                 );
 
-                router.back();
+                if (router.canGoBack()) {
+                    router.back();
+                } else {
+                    router.replace("/(tabs)/quests");
+                }
                 return;
             }
 
@@ -120,7 +124,7 @@ export default function EditQuestScreen() {
                     db,
                     "users",
                     user.uid,
-                    "customQuests",
+                    "quests",
                     questId
                 );
 
@@ -133,7 +137,11 @@ export default function EditQuestScreen() {
                         "This quest does not exist."
                     );
 
-                    router.back();
+                    if (router.canGoBack()) {
+                        router.back();
+                    } else {
+                        router.replace("/(tabs)/quests");
+                    }
                     return;
                 }
 
@@ -215,7 +223,7 @@ export default function EditQuestScreen() {
                 db,
                 "users",
                 user.uid,
-                "customQuests",
+                "quests",
                 questId
             );
 
@@ -248,7 +256,11 @@ export default function EditQuestScreen() {
                 `${cleanTitle} has been updated.`
             );
 
-            router.back();
+            if (router.canGoBack()) {
+                router.back();
+            } else {
+                router.replace("/(tabs)/quests");
+            }
         } catch (error: any) {
             console.error(
                 "UPDATE QUEST ERROR:",
@@ -283,7 +295,7 @@ export default function EditQuestScreen() {
                 db,
                 "users",
                 user.uid,
-                "customQuests",
+                "quests",
                 questId
             );
 
@@ -299,7 +311,11 @@ export default function EditQuestScreen() {
                 "Your custom quest has been removed."
             );
 
-            router.back();
+            if (router.canGoBack()) {
+                router.back();
+            } else {
+                router.replace("/(tabs)/quests");
+            }
         } catch (error: any) {
             console.error(
                 "DELETE QUEST ERROR:",
@@ -382,7 +398,13 @@ export default function EditQuestScreen() {
                 {/* BACK */}
 
                 <TouchableOpacity
-                    onPress={() => router.back()}
+                    onPress={() => {
+                        if (router.canGoBack()) {
+                            router.back();
+                        } else {
+                            router.replace("/(tabs)/quests");
+                        }
+                    }}
                     style={styles.backButton}
                 >
                     <Text style={styles.backText}>

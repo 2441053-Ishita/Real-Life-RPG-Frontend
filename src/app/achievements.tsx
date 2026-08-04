@@ -119,6 +119,155 @@ export default function AchievementsScreen() {
     }, []);
 
     // ============================================
+    // VALUES
+    // ============================================
+
+    const totalQuests = hero?.totalQuestsCompleted ?? 0;
+
+    const achievements: Achievement[] = hero
+        ? [
+            {
+                id: "first-step",
+                emoji: "🌱",
+                title: "First Step",
+                description: "Complete your first quest.",
+                category: "QUESTS",
+                current: totalQuests,
+                target: 1,
+            },
+
+            {
+                id: "rising-hero",
+                emoji: "⭐",
+                title: "Rising Hero",
+                description: "Earn 100 total XP.",
+                category: "XP",
+                current: hero.totalXP,
+                target: 100,
+            },
+
+            {
+                id: "quest-master",
+                emoji: "⚔️",
+                title: "Quest Master",
+                description: "Complete 25 quests.",
+                category: "QUESTS",
+                current: totalQuests,
+                target: 25,
+            },
+
+            {
+                id: "streak-3",
+                emoji: "🔥",
+                title: "Getting Started",
+                description: "Reach a 3 day streak.",
+                category: "STREAK",
+                current: hero.streak,
+                target: 3,
+            },
+
+            {
+                id: "streak-7",
+                emoji: "🔥",
+                title: "On Fire",
+                description: "Reach a 7 day streak.",
+                category: "STREAK",
+                current: hero.streak,
+                target: 7,
+            },
+
+            {
+                id: "streak-14",
+                emoji: "⚡",
+                title: "Unstoppable",
+                description: "Reach a 14 day streak.",
+                category: "STREAK",
+                current: hero.streak,
+                target: 14,
+            },
+
+            {
+                id: "streak-30",
+                emoji: "👑",
+                title: "Legendary Discipline",
+                description: "Reach a 30 day streak.",
+                category: "STREAK",
+                current: hero.streak,
+                target: 30,
+            },
+        ]
+        : [];
+
+    // ============================================
+    // UNLOCKED CHECK
+    // ============================================
+
+    const unlockedIds = new Set(
+        hero?.unlockedAchievements ?? []
+    );
+
+    const isAchievementUnlocked = (
+        achievement: Achievement
+    ) => {
+        // Firestore is the main source.
+        // Progress condition is also used as a safe fallback
+        // for older accounts.
+
+        return (
+            unlockedIds.has(achievement.id) ||
+            achievement.current >= achievement.target
+        );
+    };
+
+    const unlockedCount = achievements.filter(
+        isAchievementUnlocked
+    ).length;
+
+    const completionPercent =
+        achievements.length > 0
+            ? Math.round(
+                (unlockedCount / achievements.length) * 100
+            )
+            : 0;
+
+    // ============================================
+    // NEXT ACHIEVEMENT
+    // ============================================
+
+    const nextAchievement = useMemo(() => {
+        if (!hero) return null;
+
+        const locked = achievements.filter(
+            (achievement) =>
+                !isAchievementUnlocked(achievement)
+        );
+
+        if (locked.length === 0) {
+            return null;
+        }
+
+        return locked
+            .map((achievement) => {
+                const progress = Math.min(
+                    achievement.current / achievement.target,
+                    1
+                );
+
+                return {
+                    achievement,
+                    progress,
+                };
+            })
+            .sort((a, b) => b.progress - a.progress)[0]
+            .achievement;
+    }, [
+        hero?.totalXP,
+        hero?.streak,
+        hero?.totalQuestsCompleted,
+        hero?.unlockedAchievements,
+    ]);
+
+    // ============================================
     // LOADING
     // ============================================
 
@@ -156,7 +305,13 @@ export default function AchievementsScreen() {
 
                 <TouchableOpacity
                     style={styles.backErrorButton}
-                    onPress={() => router.back()}
+                    onPress={() => {
+                        if (router.canGoBack()) {
+                            router.back();
+                        } else {
+                            router.replace("/(tabs)/profile");
+                        }
+                    }}
                 >
                     <Text style={styles.backErrorText}>
                         Go Back
@@ -165,151 +320,6 @@ export default function AchievementsScreen() {
             </View>
         );
     }
-
-    // ============================================
-    // VALUES
-    // ============================================
-
-    const totalQuests = hero.totalQuestsCompleted;
-
-    const achievements: Achievement[] = [
-        {
-            id: "first-step",
-            emoji: "🌱",
-            title: "First Step",
-            description: "Complete your first quest.",
-            category: "QUESTS",
-            current: totalQuests,
-            target: 1,
-        },
-
-        {
-            id: "rising-hero",
-            emoji: "⭐",
-            title: "Rising Hero",
-            description: "Earn 100 total XP.",
-            category: "XP",
-            current: hero.totalXP,
-            target: 100,
-        },
-
-        {
-            id: "quest-master",
-            emoji: "⚔️",
-            title: "Quest Master",
-            description: "Complete 25 quests.",
-            category: "QUESTS",
-            current: totalQuests,
-            target: 25,
-        },
-
-        {
-            id: "streak-3",
-            emoji: "🔥",
-            title: "Getting Started",
-            description: "Reach a 3 day streak.",
-            category: "STREAK",
-            current: hero.streak,
-            target: 3,
-        },
-
-        {
-            id: "streak-7",
-            emoji: "🔥",
-            title: "On Fire",
-            description: "Reach a 7 day streak.",
-            category: "STREAK",
-            current: hero.streak,
-            target: 7,
-        },
-
-        {
-            id: "streak-14",
-            emoji: "⚡",
-            title: "Unstoppable",
-            description: "Reach a 14 day streak.",
-            category: "STREAK",
-            current: hero.streak,
-            target: 14,
-        },
-
-        {
-            id: "streak-30",
-            emoji: "👑",
-            title: "Legendary Discipline",
-            description: "Reach a 30 day streak.",
-            category: "STREAK",
-            current: hero.streak,
-            target: 30,
-        },
-    ];
-
-    // ============================================
-    // UNLOCKED CHECK
-    // ============================================
-
-    const unlockedIds = new Set(
-        hero.unlockedAchievements
-    );
-
-    const isAchievementUnlocked = (
-        achievement: Achievement
-    ) => {
-        // Firestore is the main source.
-        // Progress condition is also used as a safe fallback
-        // for older accounts.
-
-        return (
-            unlockedIds.has(achievement.id) ||
-            achievement.current >= achievement.target
-        );
-    };
-
-    const unlockedCount = achievements.filter(
-        isAchievementUnlocked
-    ).length;
-
-    const completionPercent =
-        achievements.length > 0
-            ? Math.round(
-                (unlockedCount / achievements.length) * 100
-            )
-            : 0;
-
-    // ============================================
-    // NEXT ACHIEVEMENT
-    // ============================================
-
-    const nextAchievement = useMemo(() => {
-        const locked = achievements.filter(
-            (achievement) =>
-                !isAchievementUnlocked(achievement)
-        );
-
-        if (locked.length === 0) {
-            return null;
-        }
-
-        return locked
-            .map((achievement) => {
-                const progress = Math.min(
-                    achievement.current / achievement.target,
-                    1
-                );
-
-                return {
-                    achievement,
-                    progress,
-                };
-            })
-            .sort((a, b) => b.progress - a.progress)[0]
-            .achievement;
-    }, [
-        hero.totalXP,
-        hero.streak,
-        hero.totalQuestsCompleted,
-        hero.unlockedAchievements,
-    ]);
 
     // ============================================
     // UI
@@ -326,7 +336,13 @@ export default function AchievementsScreen() {
                 <TouchableOpacity
                     style={styles.backButton}
                     activeOpacity={0.7}
-                    onPress={() => router.back()}
+                    onPress={() => {
+                        if (router.canGoBack()) {
+                            router.back();
+                        } else {
+                            router.replace("/(tabs)/profile");
+                        }
+                    }}
                 >
                     <Text style={styles.backIcon}>‹</Text>
 

@@ -1,5 +1,5 @@
 import { auth, db } from "@/lib/firebase";
-import { RPGTheme } from "@/app/utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import { doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";

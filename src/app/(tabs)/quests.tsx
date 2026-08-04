@@ -1,15 +1,23 @@
 import { auth, db } from "@/lib/firebase";
+import RewardService from "@/services/rewardService";
+import {
+  getUserQuests as getUserQuestsService,
+  createQuest as createQuestService,
+  updateQuest as updateQuestService,
+  deleteQuest as deleteQuestService,
+} from "@/services/questService";
 import { router } from "expo-router";
-import { RPGTheme } from "../utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 import {
   DEFAULT_SKILLS,
   HeroSkills,
   getSkillForCategory,
-} from "../utils/skills";
-import { calculateSkillTreeBonuses } from "../utils/skillTree";
+} from "@/utils/skills";
+import { calculateSkillTreeBonuses } from "@/utils/skillTree";
 
 import {
+  addDoc,
   collection,
   doc,
   onSnapshot,
@@ -47,6 +55,7 @@ type Quest = {
   xp: number;
   difficulty: Difficulty;
   category?: string;
+  completed?: boolean;
   custom?: boolean;
 };
 
@@ -210,6 +219,11 @@ export default function QuestsScreen() {
     completedQuests,
     setCompletedQuests,
   ] = useState<string[]>([]);
+
+  const [
+    dailyQuests,
+    setDailyQuests,
+  ] = useState<Quest[]>([]);
 
   const [
     customQuests,
@@ -461,625 +475,221 @@ export default function QuestsScreen() {
         }
       );
 
-    return () =>
-      unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   // ============================================
-  // LOAD CUSTOM QUESTS
+  // LOAD DAILY QUESTS (users/{uid}/dailyQuests)
   // ============================================
 
   useEffect(() => {
     const user = auth.currentUser;
 
     if (!user) {
-      setCustomLoading(
-        false
-      );
-
+      setCustomLoading(false);
       return;
     }
 
-    const customQuestRef =
-      collection(
-        db,
-        "users",
-        user.uid,
-        "customQuests"
-      );
+    const dailyRef = collection(db, "users", user.uid, "dailyQuests");
+    let isDailySeeding = false;
 
-    const customQuestQuery =
-      query(
-        customQuestRef,
-
-        where(
-          "active",
-          "==",
-          true
-        )
-      );
-
-    const unsubscribe =
-      onSnapshot(
-        customQuestQuery,
-
-        (snapshot) => {
-          const loadedQuests:
-            Quest[] =
-            snapshot.docs.map(
-              (
-                questDocument
-              ) => {
-                const data =
-                  questDocument.data();
-
-                return {
-                  id:
-                    `custom-${questDocument.id}`,
-
-                  emoji:
-                    data.emoji ||
-                    "⚔️",
-
-                  title:
-                    data.title ||
-                    "Custom Quest",
-
-                  description:
-                    data.description ||
-                    "",
-
-                  xp:
-                    data.xp ??
-                    10,
-
-                  difficulty:
-                    data.difficulty ||
-                    "Easy",
-
-                  custom: true,
-                };
-              }
-            );
-
-          setCustomQuests(
-            loadedQuests
-          );
-
-          setCustomLoading(
-            false
-          );
-        },
-
-        (error) => {
-          console.error(
-            "CUSTOM QUEST FIRESTORE ERROR:",
-            error
-          );
-
-          setCustomLoading(
-            false
-          );
+    const unsubscribeDaily = onSnapshot(
+      dailyRef,
+      async (snapshot) => {
+        if (snapshot.empty && !isDailySeeding) {
+          isDailySeeding = true;
+          for (const dq of DAILY_QUESTS) {
+            await addDoc(dailyRef, {
+              title: dq.title,
+              description: dq.description,
+              difficulty: dq.difficulty.toLowerCase(),
+              category: dq.category || "general",
+              xpReward: dq.xp,
+              coinReward: Math.floor(dq.xp / 2),
+              completed: false,
+              emoji: dq.emoji,
+              xp: dq.xp,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+          isDailySeeding = false;
+          return;
         }
-      );
 
-    return () =>
-      unsubscribe();
+        const loadedDaily: Quest[] = snapshot.docs.map((questDocument) => {
+          const data = questDocument.data();
+          return {
+            id: questDocument.id,
+            emoji: data.emoji || "⚔️",
+            title: data.title || "Daily Quest",
+            description: data.description || "",
+            xp: data.xpReward ?? data.xp ?? 10,
+            difficulty: (data.difficulty as Difficulty) || "Easy",
+            completed: Boolean(data.completed),
+            custom: false,
+          };
+        });
+
+        setDailyQuests(loadedDaily);
+      },
+      (error) => {
+        console.error("DAILY QUEST FIRESTORE ERROR:", error);
+      }
+    );
+
+    return () => unsubscribeDaily();
+  }, []);
+
+  // ============================================
+  // LOAD CUSTOM QUESTS (users/{uid}/quests)
+  // ============================================
+
+  useEffect(() => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      setCustomLoading(false);
+      return;
+    }
+
+    const customQuestRef = collection(db, "users", user.uid, "quests");
+
+    const unsubscribeCustom = onSnapshot(
+      customQuestRef,
+      (snapshot) => {
+        const loadedQuests: Quest[] = snapshot.docs.map((questDocument) => {
+          const data = questDocument.data();
+          return {
+            id: questDocument.id,
+            emoji: data.emoji || "⚔️",
+            title: data.title || "Quest",
+            description: data.description || "",
+            xp: data.xpReward ?? data.xp ?? 10,
+            difficulty: (data.difficulty as Difficulty) || "Easy",
+            completed: Boolean(data.completed),
+            custom: true,
+          };
+        });
+
+        setCustomQuests(loadedQuests);
+        setCustomLoading(false);
+      },
+      (error) => {
+        console.error("CUSTOM QUEST FIRESTORE ERROR:", error);
+        setCustomLoading(false);
+      }
+    );
+
+    return () => unsubscribeCustom();
   }, []);
 
   // ============================================
   // COMPLETE QUEST
   // ============================================
 
-  const completeQuest =
-    async (quest: Quest) => {
-      const user =
-        auth.currentUser;
-
-      if (!user) {
-        showMessage(
-          "Session Error",
-          "Please sign in again."
-        );
-
-        router.replace(
-          "/login"
-        );
-
-        return;
-      }
-
-      if (
-        completedQuests.includes(
-          quest.id
-        )
-      ) {
-        return;
-      }
-
-      try {
-        setCompletingId(
-          quest.id
-        );
-
-        const userRef = doc(
-          db,
-          "users",
-          user.uid
-        );
-
-        const today =
-          getTodayKey();
-
-        const yesterday =
-          getYesterdayKey();
-
-        // ======================================
-        // TRANSACTION RETURNS NEW ACHIEVEMENTS
-        // ======================================
-
-        const result =
-          await runTransaction(
-            db,
-
-            async (
-              transaction
-            ) => {
-              const snapshot =
-                await transaction.get(
-                  userRef
-                );
-
-              if (
-                !snapshot.exists()
-              ) {
-                throw new Error(
-                  "Hero profile not found."
-                );
-              }
-
-              const data =
-                snapshot.data();
-
-              // ==================================
-              // TODAY'S COMPLETED QUESTS
-              // ==================================
-
-              const storedDate =
-                data.questDate || "";
-
-              let currentCompleted:
-                string[] = [];
-
-              if (
-                storedDate === today
-              ) {
-                currentCompleted =
-                  (
-                    data.completedQuests ||
-                    []
-                  ).map(
-                    (
-                      id:
-                        | string
-                        | number
-                    ) =>
-                      String(id)
-                  );
-              }
-
-              // ==================================
-              // DUPLICATE PROTECTION
-              // ==================================
-
-              if (
-                currentCompleted.includes(
-                  quest.id
-                )
-              ) {
-                return {
-                  completed: false,
-                  newAchievements:
-                    [] as string[],
-                };
-              }
-
-              const newCompleted = [
-                ...currentCompleted,
-                quest.id,
-              ];
-
-              // ==================================
-              // XP + LEVEL
-              // ==================================
-
-              const currentXP = data.xp ?? 0;
-              const currentLevel = data.level ?? 1;
-              const currentTotalXP = data.totalXP ?? 0;
-              const currentCoins = data.coins ?? 0;
-
-              // Calculate Skill Tree passive bonuses
-              const skillBonuses = calculateSkillTreeBonuses(data.skills || {});
-              const earnedXP = Math.round(quest.xp * (1 + (skillBonuses.xpBonusPct || 0) / 100));
-              const earnedCoins = Math.round(quest.xp * (1 + (skillBonuses.coinBonusPct || 0) / 100));
-
-              let newXP =
-                currentXP +
-                earnedXP;
-
-              let newLevel =
-                currentLevel;
-
-              while (
-                newXP >= 100
-              ) {
-                newXP -= 100;
-                newLevel += 1;
-              }
-
-              const earnedPoints = newLevel > currentLevel ? newLevel - currentLevel : 0;
-              const currentSkillPoints = data.skillPoints ?? (data.level ? data.level - 1 : 0);
-              const newSkillPoints = currentSkillPoints + earnedPoints;
-
-              const newTotalXP =
-                currentTotalXP + earnedXP;
-
-              const newCoins =
-                currentCoins +
-                earnedCoins;
-
-              // ==================================
-              // LIFETIME QUEST COUNT
-              // ==================================
-
-              const currentQuestCount =
-                data.totalQuestsCompleted ??
-                0;
-
-              const newQuestCount =
-                currentQuestCount +
-                1;
-
-              // ==================================
-              // STREAK
-              // ==================================
-
-              const lastActiveDate =
-                data.lastActiveDate || "";
-
-              let newStreak =
-                data.streak ?? 0;
-
-              if (
-                lastActiveDate !== today
-              ) {
-                if (
-                  lastActiveDate ===
-                  yesterday
-                ) {
-                  newStreak =
-                    (data.streak ??
-                      0) + 1;
-                } else {
-                  newStreak = 1;
-                }
-              }
-
-              // ==================================
-              // SAVED ACHIEVEMENTS
-              // ==================================
-
-              const savedAchievements:
-                string[] =
-                Array.isArray(
-                  data.unlockedAchievements
-                )
-                  ? data.unlockedAchievements.map(
-                    (
-                      id: unknown
-                    ) =>
-                      String(id)
-                  )
-                  : [];
-
-              const savedSet =
-                new Set<string>(
-                  savedAchievements
-                );
-
-              const achievementSet =
-                new Set<string>(
-                  savedAchievements
-                );
-
-              // ==================================
-              // FIRST STEP
-              // ==================================
-
-              achievementSet.add(
-                "first-step"
-              );
-
-              // ==================================
-              // RISING HERO
-              // ==================================
-
-              if (
-                newTotalXP >= 100
-              ) {
-                achievementSet.add(
-                  "rising-hero"
-                );
-              }
-
-              // ==================================
-              // QUEST MASTER
-              // ==================================
-
-              if (
-                newQuestCount >= 25
-              ) {
-                achievementSet.add(
-                  "quest-master"
-                );
-              }
-
-              // ==================================
-              // STREAK MILESTONES
-              // ==================================
-
-              if (
-                newStreak >= 3
-              ) {
-                achievementSet.add(
-                  "streak-3"
-                );
-              }
-
-              if (
-                newStreak >= 7
-              ) {
-                achievementSet.add(
-                  "streak-7"
-                );
-              }
-
-              if (
-                newStreak >= 14
-              ) {
-                achievementSet.add(
-                  "streak-14"
-                );
-              }
-
-              if (
-                newStreak >= 30
-              ) {
-                achievementSet.add(
-                  "streak-30"
-                );
-              }
-
-              const unlockedAchievements =
-                Array.from(
-                  achievementSet
-                );
-
-              // ==================================
-              // FIND ONLY NEW ACHIEVEMENTS
-              // ==================================
-
-              const newAchievements =
-                unlockedAchievements.filter(
-                  (achievementId) =>
-                    !savedSet.has(
-                      achievementId
-                    )
-                );
-
-              // ==================================
-              // UPDATE HERO SKILLS
-              // ==================================
-
-              const currentSkills: HeroSkills = {
-                ...DEFAULT_SKILLS,
-                ...(data.skills || {}),
-              };
-
-              const targetSkill = getSkillForCategory(
-                (quest as any).category || "",
-                quest.title || ""
-              );
-
-              const skillIncrement = quest.xp || 10;
-
-              const updatedSkills: HeroSkills = {
-                ...currentSkills,
-                [targetSkill]:
-                  (currentSkills[targetSkill] ?? 0) +
-                  skillIncrement,
-              };
-
-              // ==================================
-              // UPDATE USER
-              // ==================================
-
-              transaction.update(
-                userRef,
-                {
-                  completedQuests:
-                    newCompleted,
-
-                  questDate:
-                    today,
-
-                  xp:
-                    newXP,
-
-                  totalXP:
-                    newTotalXP,
-
-                  coins:
-                    newCoins,
-
-                  level:
-                    newLevel,
-
-                  skillPoints:
-                    newSkillPoints,
-
-                  totalQuestsCompleted:
-                    newQuestCount,
-
-                  streak:
-                    newStreak,
-
-                  skills:
-                    updatedSkills,
-
-                  lastActiveDate:
-                    today,
-
-                  unlockedAchievements,
-
-                  updatedAt:
-                    serverTimestamp(),
-                }
-              );
-
-              // ==================================
-              // RETURN TRANSACTION RESULT
-              // ==================================
-
-              return {
-                completed: true,
-                newAchievements,
-                newLevel,
-                newStreak,
-                newTotalXP,
-                newCoins,
-              };
+  const completeQuest = async (quest: Quest) => {
+    console.log("[DEBUG 2] completeQuest called for quest.id:", quest.id);
+    const user = auth.currentUser;
+
+    if (!user) {
+      showMessage("Session Error", "Please sign in again.");
+      router.replace("/login");
+      return;
+    }
+
+    if (completedQuests.includes(quest.id)) {
+      console.log("[DEBUG 2.1] Quest already completed locally. Exiting.");
+      return;
+    }
+
+    try {
+      setCompletingId(quest.id);
+
+      const realQuestId = quest.id.startsWith("custom-")
+        ? quest.id.replace("custom-", "")
+        : quest.id;
+
+      console.log("[DEBUG 3] Calling RewardService.completeQuest with user.uid:", user.uid, "realQuestId:", realQuestId);
+      // Delegate all reward calculations and completion to RewardService.completeQuest
+      const result = await RewardService.completeQuest(user.uid, realQuestId);
+
+      if (result && result.completed) {
+        console.log("[DEBUG 3.1] RewardService successfully completed quest. Updating state.");
+        setCompletedQuests((prev) => [...prev, quest.id]);
+
+        if (typeof result.newTotalXP === "number") {
+          setTotalXP(result.newTotalXP);
+        }
+
+        if (typeof result.newCoins === "number") {
+          setCoins(result.newCoins);
+        }
+
+        // Unlock next sequential quest based directly on Firestore query results
+        try {
+          const firestoreQuests = await getUserQuestsService(user.uid);
+
+          console.log("==========================================");
+          console.log("[STEP 1 INSPECTION] ALL FIRESTORE QUESTS:");
+          firestoreQuests.forEach((fq, idx) => {
+            console.log(`Index ${idx} | id: ${fq.id} | title: "${fq.title}" | completed: ${fq.completed} | active: ${fq.active} | locked: ${fq.locked}`);
+          });
+
+          const q1 = firestoreQuests.find((fq) => fq.id === realQuestId);
+          console.log("------------------------------------------");
+          console.log("[STEP 1 INSPECTION] QUEST 1 DOCUMENT:");
+          console.log("id:", q1?.id);
+          console.log("title:", q1?.title);
+          console.log("completed:", q1?.completed);
+          console.log("active:", q1?.active);
+          console.log("locked:", q1?.locked);
+
+          const q1Index = firestoreQuests.findIndex((fq) => fq.id === realQuestId);
+          console.log("Quest 1 Index in getUserQuests array:", q1Index);
+
+          // Find Quest 2 (the quest immediately created after or positioned after Quest 1)
+          const q2 = firestoreQuests.find((fq) => fq.id !== realQuestId && !fq.completed);
+          console.log("------------------------------------------");
+          console.log("[STEP 1 INSPECTION] QUEST 2 DOCUMENT:");
+          console.log("id:", q2?.id);
+          console.log("title:", q2?.title);
+          console.log("completed:", q2?.completed);
+          console.log("active:", q2?.active);
+          console.log("locked:", q2?.locked);
+          console.log("==========================================");
+
+          const currentIndex = firestoreQuests.findIndex((fq) => fq.id === realQuestId);
+          if (currentIndex !== -1 && currentIndex + 1 < firestoreQuests.length) {
+            const nextQuest = firestoreQuests[currentIndex + 1];
+            if (nextQuest && !nextQuest.completed && nextQuest.id) {
+              await updateQuestService(user.uid, nextQuest.id, {
+                active: true,
+                locked: false,
+                updatedAt: serverTimestamp(),
+              });
+              console.log("[DEBUG 3.2] Firestore-driven unlock: Unlocked next quest document in Firestore:", nextQuest.id);
             }
-          );
-
-        // ========================================
-        // DUPLICATE TRANSACTION RESULT
-        // ========================================
-
-        if (
-          !result ||
-          !result.completed
-        ) {
-          return;
+          } else {
+            console.log("[DEBUG 3.2] updateQuestService() WAS NOT CALLED because currentIndex + 1 >= firestoreQuests.length (currentIndex:", currentIndex, ", length:", firestoreQuests.length, ")");
+          }
+        } catch (unlockErr) {
+          console.error("[DEBUG 3.2] Firestore-driven unlock error:", unlockErr);
         }
-
-        console.log(
-          "======================"
-        );
-
-        console.log(
-          "QUEST COMPLETED:",
-          quest.title
-        );
-
-        console.log(
-          "XP EARNED:",
-          quest.xp
-        );
-
-        console.log(
-          "NEW ACHIEVEMENTS:",
-          result.newAchievements
-        );
-
-        console.log(
-          "QUEST HISTORY SAVED"
-        );
-
-        console.log(
-          "======================"
-        );
-
-        // ========================================
-        // ACHIEVEMENT POPUP
-        // ========================================
-
-        if (
-          result.newAchievements.length >
-          0
-        ) {
-          const unlockedDetails =
-            result.newAchievements
-              .map(
-                (
-                  achievementId
-                ) =>
-                  ACHIEVEMENT_INFO[
-                  achievementId
-                  ]
-              )
-              .filter(
-                (
-                  achievement
-                ): achievement is AchievementInfo =>
-                  Boolean(
-                    achievement
-                  )
-              );
-
-          const achievementMessage =
-            unlockedDetails
-              .map(
-                (
-                  achievement
-                ) =>
-                  `${achievement.emoji} ${achievement.title}\n${achievement.description}`
-              )
-              .join(
-                "\n\n"
-              );
-
-          showMessage(
-            "🏆 Achievement Unlocked!",
-            `Quest Complete: ${quest.title}
-            ⭐ +${quest.xp} XP
-            🪙 +${quest.xp} Coins
-            ${achievementMessage}`
-          );
-        } else {
-          // ======================================
-          // NORMAL QUEST POPUP
-          // ======================================
-
-          showMessage(
-            "Quest Complete! ⚔️",
-            `${quest.title}
-          ⭐ +${quest.xp} XP
-          🪙 +${quest.xp} Coins`
-          );
-        }
-      } catch (
-      error: any
-      ) {
-        console.error(
-          "COMPLETE QUEST ERROR:",
-          error
-        );
-
-        const message =
-          error?.message ||
-          "Unable to complete quest.";
 
         showMessage(
-          "Quest Error",
-          message
-        );
-      } finally {
-        setCompletingId(
-          null
+          "Quest Complete! ⚔️",
+          `${quest.title}\n⭐ +${result.xpEarned} XP\n🪙 +${result.coinsEarned} Coins`
         );
       }
-    };
+    } catch (error: any) {
+      console.error("COMPLETE QUEST ERROR:", error);
+      const message = error?.message || "Unable to complete quest.";
+      showMessage("Quest Error", message);
+    } finally {
+      setCompletingId(null);
+    }
+  };
 
   // ============================================
   // CALCULATIONS
@@ -1139,10 +749,11 @@ export default function QuestsScreen() {
     quest: Quest;
     list: Quest[];
   }) => {
-    const completed = completedQuests.includes(quest.id);
+    const isDone = (q: Quest) => Boolean(q.completed) || completedQuests.includes(q.id);
+    const completed = isDone(quest);
 
     const firstIncompleteIndex = list.findIndex(
-      (q) => !completedQuests.includes(q.id)
+      (q) => !isDone(q)
     );
     const questIndex = list.findIndex((q) => q.id === quest.id);
 
@@ -1273,8 +884,9 @@ export default function QuestsScreen() {
             )}
 
             <TouchableOpacity
-              disabled={completed || isCompleting || isLocked}
+              disabled={completed || isCompleting}
               onPress={() => {
+                console.log("[DEBUG 1] Complete button pressed for quest.id:", quest.id, "title:", quest.title);
                 if (isLocked) {
                   showMessage(
                     "🔒 Locked Quest",
@@ -1305,8 +917,8 @@ export default function QuestsScreen() {
                   {completed
                     ? "Completed ✓"
                     : isLocked
-                    ? "🔒 Locked"
-                    : "Complete ⚔️"}
+                      ? "🔒 Locked"
+                      : "Complete ⚔️"}
                 </Text>
               )}
             </TouchableOpacity>
@@ -1483,12 +1095,12 @@ export default function QuestsScreen() {
           </View>
         </View>
 
-        {DAILY_QUESTS.map(
+        {dailyQuests.map(
           (quest) => (
             <QuestCard
               key={quest.id}
               quest={quest}
-              list={DAILY_QUESTS}
+              list={dailyQuests}
             />
           )
         )}

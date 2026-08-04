@@ -99,7 +99,7 @@ export default function QuestHistoryScreen() {
             db,
             "users",
             user.uid,
-            "questHistory"
+            "history"
         );
 
         const historyQuery = query(
@@ -148,12 +148,14 @@ export default function QuestHistoryScreen() {
                                     data.xpEarned ?? 0,
 
                                 custom:
-                                    data.custom ??
-                                    false,
+                                    data.questType === "custom" ||
+                                    Boolean(data.custom),
 
                                 completedDate:
                                     data.completedDate ||
-                                    "",
+                                    (data.completedAt?.toDate
+                                        ? data.completedAt.toDate().toISOString().split("T")[0]
+                                        : ""),
 
                                 completedAt:
                                     data.completedAt,
@@ -244,9 +246,13 @@ export default function QuestHistoryScreen() {
                 {/* BACK BUTTON */}
 
                 <TouchableOpacity
-                    onPress={() =>
-                        router.back()
-                    }
+                    onPress={() => {
+                        if (router.canGoBack()) {
+                            router.back();
+                        } else {
+                            router.replace("/(tabs)/quests");
+                        }
+                    }}
                     style={
                         styles.backButton
                     }
@@ -432,9 +438,13 @@ export default function QuestHistoryScreen() {
                                 styles.questButton
                             }
                             activeOpacity={0.8}
-                            onPress={() =>
-                                router.back()
-                            }
+                            onPress={() => {
+                                if (router.canGoBack()) {
+                                    router.back();
+                                } else {
+                                    router.replace("/(tabs)/quests");
+                                }
+                            }}
                         >
                             <Text
                                 style={

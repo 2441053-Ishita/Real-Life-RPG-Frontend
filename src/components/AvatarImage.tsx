@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
-import { RPGTheme } from "@/app/utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 
 export const DEFAULT_AVATARS = [
   { id: "warrior", emoji: "⚔️", label: "Paladin Warrior" },

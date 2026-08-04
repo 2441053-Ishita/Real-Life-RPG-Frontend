@@ -1,9 +1,9 @@
 import { auth, db } from "@/lib/firebase";
-import { getHeroRank } from "../utils/rank";
-import { RPGTheme } from "../utils/rpgTheme";
+import { getHeroRank } from "@/utils/rank";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 import { router } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -18,6 +18,9 @@ import {
 } from "react-native";
 
 import AvatarImage from "@/components/AvatarImage";
+import ChestService, { ChestReward } from "@/services/chestService";
+import DailyRewardService, { DAILY_REWARDS_SCHEDULE, DailyRewardItem } from "@/services/dailyRewardService";
+import { Modal } from "react-native";
 
 type HeroData = {
   heroName: string;
@@ -29,6 +32,9 @@ type HeroData = {
   streak: number;
   completedQuests: string[];
   totalQuestsCompleted: number;
+  mysteryChestsOpened: number;
+  dailyLoginDay: number;
+  lastLoginClaimDate: string;
   equippedAvatar?: string;
   avatarUrl?: string | null;
 };
@@ -52,13 +58,113 @@ export default function HomeScreen() {
     streak: 1,
     completedQuests: [],
     totalQuestsCompleted: 0,
+    mysteryChestsOpened: 0,
+    dailyLoginDay: 1,
+    lastLoginClaimDate: "",
     equippedAvatar: "warrior-avatar",
   });
 
   const xpProgressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const chestScaleAnim = useRef(new Animated.Value(0.4)).current;
+
+  const [openingChest, setOpeningChest] = useState(false);
+  const [chestReward, setChestReward] = useState<ChestReward | null>(null);
 
   const uid = auth.currentUser?.uid;
+
+  const handleOpenChest = async () => {
+    if (!uid || openingChest) return;
+    setOpeningChest(true);
+
+    try {
+      const reward = await ChestService.openMysteryChest(uid);
+      setChestReward(reward);
+
+      Animated.spring(chestScaleAnim, {
+        toValue: 1,
+        friction: 5,
+        tension: 40,
+        useNativeDriver: true,
+      }).start();
+    } catch (error: any) {
+      console.error("Error opening mystery chest:", error);
+      alert(error?.message || "Failed to open mystery chest.");
+    } finally {
+      setOpeningChest(false);
+    }
+  };
+
+  const [claimingDailyReward, setClaimingDailyReward] = useState(false);
+  const [dailyRewardPopup, setDailyRewardPopup] = useState<DailyRewardItem | null>(null);
+
+  const getTodayStr = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const isDailyRewardClaimedToday = hero.lastLoginClaimDate === getTodayStr();
+
+  const handleClaimDailyReward = async () => {
+    if (!uid || claimingDailyReward || isDailyRewardClaimedToday) return;
+    setClaimingDailyReward(true);
+
+    try {
+      const reward = await DailyRewardService.claimDailyReward(uid);
+      setDailyRewardPopup(reward);
+    } catch (error: any) {
+      console.error("Error claiming daily reward:", error);
+      alert(error?.message || "Failed to claim daily reward.");
+    } finally {
+      setClaimingDailyReward(false);
+    }
+  };
+
+  const [dailyMissions, setDailyMissions] = useState({
+    total: 4,
+    completed: 0,
+    remaining: 4,
+    clearPercentage: 0,
+  });
+
+  useEffect(() => {
+    if (!uid) return;
+
+    const dailyQuestsRef = collection(db, "users", uid, "dailyQuests");
+    const unsubscribeDaily = onSnapshot(
+      dailyQuestsRef,
+      (snapshot: any) => {
+        const totalDocs = snapshot.docs.length;
+        const total = totalDocs > 0 ? totalDocs : 4;
+        let completedCount = 0;
+
+        snapshot.docs.forEach((docSnap: any) => {
+          const data = docSnap.data();
+          if (data.completed === true) {
+            completedCount++;
+          }
+        });
+
+        const remainingCount = Math.max(0, total - completedCount);
+        const clearPct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+
+        setDailyMissions({
+          total,
+          completed: completedCount,
+          remaining: remainingCount,
+          clearPercentage: clearPct,
+        });
+      },
+      (error: any) => {
+        console.error("Daily Quests Subcollection Error:", error);
+      }
+    );
+
+    return () => unsubscribeDaily();
+  }, [uid]);
 
   useEffect(() => {
     if (!uid) {
@@ -85,7 +191,10 @@ export default function HomeScreen() {
           coins,
           streak,
           completedQuests: (data.completedQuests || []).map((id: any) => String(id)),
-          totalQuestsCompleted: data.totalQuestsCompleted ?? 0,
+          totalQuestsCompleted: data.totalQuestsCompleted ?? (data.completedQuests || []).length,
+          mysteryChestsOpened: data.mysteryChestsOpened ?? 0,
+          dailyLoginDay: Number(data.dailyLoginDay ?? 1),
+          lastLoginClaimDate: String(data.lastLoginClaimDate || ""),
           equippedAvatar: data.equippedAvatar || "warrior",
           avatarUrl: data.profile?.avatarUrl || data.avatarUrl || null,
         });
@@ -139,9 +248,6 @@ export default function HomeScreen() {
   }, []);
 
   const rank = getHeroRank(hero.level);
-  const completedTodayCount = HOME_QUESTS.filter((q) =>
-    hero.completedQuests.includes(q.id)
-  ).length;
 
   if (loading) {
     return (
@@ -238,6 +344,124 @@ export default function HomeScreen() {
         </View>
 
         {/* ====================================
+            MYSTERY TREASURE CHEST CARD
+        ==================================== */}
+        {(() => {
+          const unlockedCount = Math.floor(hero.totalQuestsCompleted / 10);
+          const openedCount = hero.mysteryChestsOpened ?? 0;
+          const availableCount = Math.max(0, unlockedCount - openedCount);
+          const remainingQuests = 10 - (hero.totalQuestsCompleted % 10);
+
+          return (
+            <View style={[styles.sectionCard, availableCount > 0 && styles.activeChestCard]}>
+              <View style={styles.chestRow}>
+                <Text style={styles.chestIconEmoji}>{availableCount > 0 ? "🎁" : "🧰"}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.chestCardTitle}>
+                    {availableCount > 0
+                      ? `Mystery Chest Ready! (${availableCount})`
+                      : "Mystery Treasure Chest"}
+                  </Text>
+                  <Text style={styles.chestCardSub}>
+                    {availableCount > 0
+                      ? "Earned every 10 completed quests! Tap to unlock your reward."
+                      : `Complete ${remainingQuests} more quest(s) to unlock next chest.`}
+                  </Text>
+                </View>
+              </View>
+
+              {/* CHEST UNLOCK PROGRESS BAR IF LOCKED */}
+              {availableCount === 0 && (
+                <View style={styles.chestProgressBox}>
+                  <View style={styles.chestTrack}>
+                    <View
+                      style={[
+                        styles.chestFill,
+                        { width: `${Math.round(((10 - remainingQuests) / 10) * 100)}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.chestProgressText}>
+                    {10 - remainingQuests} / 10 Quests Completed
+                  </Text>
+                </View>
+              )}
+
+              {/* OPEN CHEST BUTTON */}
+              {availableCount > 0 && (
+                <TouchableOpacity
+                  style={styles.openChestBtn}
+                  disabled={openingChest}
+                  activeOpacity={0.85}
+                  onPress={handleOpenChest}
+                >
+                  <Text style={styles.openChestBtnText}>
+                    {openingChest ? "Opening Chest..." : "🎁 Open Mystery Chest Now"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* ====================================
+            DAILY LOGIN REWARDS CARD
+        ==================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <Text style={styles.sectionCardTitle}>📅 Daily Login Rewards</Text>
+            <Text style={styles.dailyRewardCycleText}>Cycle Day {hero.dailyLoginDay} / 7</Text>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dailyStripContainer}>
+            {DAILY_REWARDS_SCHEDULE.map((item) => {
+              const isCurrentDay = item.day === hero.dailyLoginDay;
+              const isPastClaimed = item.day < hero.dailyLoginDay || (isCurrentDay && isDailyRewardClaimedToday);
+
+              return (
+                <View
+                  key={item.day}
+                  style={[
+                    styles.dailyItemBox,
+                    isCurrentDay && !isDailyRewardClaimedToday && styles.activeDailyItemBox,
+                    isPastClaimed && styles.claimedDailyItemBox,
+                  ]}
+                >
+                  <Text style={styles.dailyDayText}>Day {item.day}</Text>
+                  <Text style={styles.dailyIconEmoji}>{item.icon}</Text>
+                  <Text style={styles.dailyTitleText} numberOfLines={1}>{item.title}</Text>
+                  {isPastClaimed ? (
+                    <Text style={styles.dailyCheckmark}>✓ Claimed</Text>
+                  ) : isCurrentDay ? (
+                    <Text style={styles.dailyReadyBadge}>READY</Text>
+                  ) : (
+                    <Text style={styles.dailyUpcomingText}>Upcoming</Text>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          <TouchableOpacity
+            style={[
+              styles.claimDailyBtn,
+              isDailyRewardClaimedToday && styles.claimedDailyBtn,
+            ]}
+            disabled={isDailyRewardClaimedToday || claimingDailyReward}
+            activeOpacity={0.85}
+            onPress={handleClaimDailyReward}
+          >
+            <Text style={styles.claimDailyBtnText}>
+              {claimingDailyReward
+                ? "Claiming..."
+                : isDailyRewardClaimedToday
+                  ? "✓ Reward Claimed Today (Come back tomorrow!)"
+                  : `🎁 Claim Day ${hero.dailyLoginDay} Reward`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ====================================
             2. TODAY'S QUEST PROGRESS
         ==================================== */}
         <View style={styles.sectionCard}>
@@ -250,17 +474,17 @@ export default function HomeScreen() {
 
           <View style={styles.missionProgressGrid}>
             <View style={styles.missionBox}>
-              <Text style={styles.missionBoxNum}>{completedTodayCount} / {HOME_QUESTS.length}</Text>
+              <Text style={styles.missionBoxNum}>
+                {dailyMissions.completed} / {dailyMissions.total}
+              </Text>
               <Text style={styles.missionBoxLabel}>Completed</Text>
             </View>
             <View style={styles.missionBox}>
-              <Text style={styles.missionBoxNum}>{HOME_QUESTS.length - completedTodayCount}</Text>
+              <Text style={styles.missionBoxNum}>{dailyMissions.remaining}</Text>
               <Text style={styles.missionBoxLabel}>Remaining</Text>
             </View>
             <View style={styles.missionBox}>
-              <Text style={styles.missionBoxNum}>
-                {Math.round((completedTodayCount / HOME_QUESTS.length) * 100)}%
-              </Text>
+              <Text style={styles.missionBoxNum}>{dailyMissions.clearPercentage}%</Text>
               <Text style={styles.missionBoxLabel}>Clear %</Text>
             </View>
           </View>
@@ -330,6 +554,93 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* REWARD REVEAL ANIMATION MODAL */}
+      <Modal
+        visible={!!chestReward}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setChestReward(null)}
+      >
+        <View style={styles.chestModalOverlay}>
+          <Animated.View style={[styles.chestRewardCard, { transform: [{ scale: chestScaleAnim }] }]}>
+            <Text style={styles.rewardSparkleEmoji}>✨ 🎁 ✨</Text>
+
+            {chestReward && (
+              <>
+                <Text style={styles.rewardEmoji}>{chestReward.emoji}</Text>
+                <Text style={styles.rewardTitleText}>{chestReward.title}</Text>
+                <Text style={styles.rewardSubtitleText}>{chestReward.subtitle}</Text>
+
+                {chestReward.rarity && (
+                  <View style={styles.rarityBadge}>
+                    <Text style={styles.rarityBadgeText}>{chestReward.rarity.toUpperCase()} REWARD</Text>
+                  </View>
+                )}
+
+                {chestReward.item && (
+                  <View style={styles.itemDetailBox}>
+                    <Text style={styles.itemDetailName}>{chestReward.item.name}</Text>
+                    <Text style={styles.itemDetailDesc}>{chestReward.item.description}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.claimRewardBtn}
+                  onPress={() => {
+                    setChestReward(null);
+                    chestScaleAnim.setValue(0.4);
+                  }}
+                >
+                  <Text style={styles.claimRewardBtnText}>Collect Reward</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* DAILY LOGIN REWARD CLAIMED MODAL */}
+      <Modal
+        visible={!!dailyRewardPopup}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDailyRewardPopup(null)}
+      >
+        <View style={styles.chestModalOverlay}>
+          <View style={styles.chestRewardCard}>
+            <Text style={styles.rewardSparkleEmoji}>🎉 📅 🎉</Text>
+
+            {dailyRewardPopup && (
+              <>
+                <Text style={styles.rewardEmoji}>{dailyRewardPopup.icon}</Text>
+                <Text style={styles.rewardTitleText}>Day {dailyRewardPopup.day} Claimed!</Text>
+                <Text style={styles.rewardSubtitleText}>{dailyRewardPopup.title} • {dailyRewardPopup.subtitle}</Text>
+
+                {dailyRewardPopup.rarity && (
+                  <View style={styles.rarityBadge}>
+                    <Text style={styles.rarityBadgeText}>{dailyRewardPopup.rarity.toUpperCase()} REWARD</Text>
+                  </View>
+                )}
+
+                {dailyRewardPopup.inventoryItem && (
+                  <View style={styles.itemDetailBox}>
+                    <Text style={styles.itemDetailName}>{dailyRewardPopup.inventoryItem.name}</Text>
+                    <Text style={styles.itemDetailDesc}>{dailyRewardPopup.inventoryItem.description}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.claimRewardBtn}
+                  onPress={() => setDailyRewardPopup(null)}
+                >
+                  <Text style={styles.claimRewardBtnText}>Awesome!</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -648,5 +959,227 @@ const styles = StyleSheet.create({
     color: RPGTheme.colors.textMuted,
     fontFamily: RPGTheme.fonts.body,
     fontSize: 10,
+  },
+
+  // CHEST CARD STYLES
+  activeChestCard: {
+    borderColor: "#F59E0B",
+    borderWidth: 2,
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+  },
+  chestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  chestIconEmoji: {
+    fontSize: 34,
+  },
+  chestCardTitle: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  chestCardSub: {
+    color: RPGTheme.colors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  chestProgressBox: {
+    marginTop: 6,
+  },
+  chestTrack: {
+    height: 8,
+    backgroundColor: "rgba(148, 163, 184, 0.2)",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 4,
+  },
+  chestFill: {
+    height: "100%",
+    backgroundColor: "#F59E0B",
+    borderRadius: 4,
+  },
+  chestProgressText: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  openChestBtn: {
+    backgroundColor: "#F59E0B",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  openChestBtnText: {
+    color: "#0F172A",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  // CHEST MODAL STYLES
+  chestModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  chestRewardCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: RPGTheme.colors.primaryCard,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: "#F59E0B",
+    padding: 24,
+    alignItems: "center",
+  },
+  rewardSparkleEmoji: {
+    fontSize: 22,
+    marginBottom: 8,
+  },
+  rewardEmoji: {
+    fontSize: 54,
+    marginBottom: 10,
+  },
+  rewardTitleText: {
+    color: "#F59E0B",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  rewardSubtitleText: {
+    color: RPGTheme.colors.textSecondary,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  rarityBadge: {
+    backgroundColor: "rgba(245, 158, 11, 0.2)",
+    borderColor: "#F59E0B",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  rarityBadgeText: {
+    color: "#F59E0B",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  itemDetailBox: {
+    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    borderRadius: 12,
+    padding: 12,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  itemDetailName: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  itemDetailDesc: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+    textAlign: "center",
+  },
+  claimRewardBtn: {
+    backgroundColor: RPGTheme.colors.purplePrimary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    width: "100%",
+    alignItems: "center",
+  },
+  claimRewardBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  // DAILY REWARD CARD STYLES
+  dailyRewardCycleText: {
+    color: "#A78BFA",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  dailyStripContainer: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+  },
+  dailyItemBox: {
+    width: 90,
+    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.15)",
+    padding: 10,
+    alignItems: "center",
+  },
+  activeDailyItemBox: {
+    borderColor: "#7C3AED",
+    borderWidth: 2,
+    backgroundColor: "rgba(124, 58, 237, 0.18)",
+  },
+  claimedDailyItemBox: {
+    borderColor: "rgba(34, 197, 94, 0.3)",
+    backgroundColor: "rgba(34, 197, 94, 0.08)",
+  },
+  dailyDayText: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  dailyIconEmoji: {
+    fontSize: 26,
+    marginBottom: 4,
+  },
+  dailyTitleText: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 10,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  dailyCheckmark: {
+    color: "#22C55E",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  dailyReadyBadge: {
+    color: "#F59E0B",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  dailyUpcomingText: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  claimDailyBtn: {
+    backgroundColor: RPGTheme.colors.purplePrimary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  claimedDailyBtn: {
+    backgroundColor: "rgba(148, 163, 184, 0.2)",
+  },
+  claimDailyBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

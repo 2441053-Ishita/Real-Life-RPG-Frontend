@@ -11,17 +11,25 @@ export type UserHeroSchema = {
   coins: number;
   streak: number;
   longestStreak: number;
+  lastLoginDate: string;
   equippedTitle: string;
-  equippedAvatar: string;
-  completedQuests: string[];
-  totalQuestsCompleted: number;
-  todayQuestsCompleted: number;
-  chapterBossesDefeated: Record<string, boolean>;
+  equippedAvatarId: string;
   currentChapter: number;
-  unlockedAchievements: string[];
-  profile: {
-    avatarUrl: string | null;
-    bio?: string;
+  stats: {
+    strength: number;
+    intelligence: number;
+    discipline: number;
+    wisdom: number;
+    vitality: number;
+    creativity: number;
+  };
+  equippedSlots: {
+    weapon: string | null;
+    helmet: string | null;
+    armor: string | null;
+    boots: string | null;
+    shield: string | null;
+    accessory: string | null;
   };
   settings: {
     notifications: boolean;
@@ -30,8 +38,6 @@ export type UserHeroSchema = {
     backgroundMusic: boolean;
     vibration: boolean;
   };
-  skills: Record<string, number>;
-  equipment: Record<string, any>;
   createdAt: any;
   updatedAt: any;
 };
@@ -45,16 +51,25 @@ export const DEFAULT_INITIAL_HERO: Partial<UserHeroSchema> = {
   coins: 50,
   streak: 1,
   longestStreak: 1,
+  lastLoginDate: new Date().toISOString().split("T")[0],
   equippedTitle: "Novice Adventurer",
-  equippedAvatar: "knight",
-  completedQuests: [],
-  totalQuestsCompleted: 0,
-  todayQuestsCompleted: 0,
-  chapterBossesDefeated: {},
+  equippedAvatarId: "avatar_knight_01",
   currentChapter: 1,
-  unlockedAchievements: [],
-  profile: {
-    avatarUrl: null,
+  stats: {
+    strength: 10,
+    intelligence: 10,
+    discipline: 10,
+    wisdom: 10,
+    vitality: 10,
+    creativity: 10,
+  },
+  equippedSlots: {
+    weapon: null,
+    helmet: null,
+    armor: null,
+    boots: null,
+    shield: null,
+    accessory: null,
   },
   settings: {
     notifications: true,
@@ -63,13 +78,6 @@ export const DEFAULT_INITIAL_HERO: Partial<UserHeroSchema> = {
     backgroundMusic: true,
     vibration: true,
   },
-  skills: {
-    warrior_attack: 0,
-    guardian_defense: 0,
-    scholar_xp: 0,
-    fortune_coins: 0,
-  },
-  equipment: {},
 };
 
 export async function initializeUserSchema(
@@ -94,15 +102,22 @@ export async function initializeUserSchema(
       await setDoc(userRef, newUserData, { merge: true });
 
       // Initialize global leaderboard entry
-      const leaderboardRef = doc(db, "leaderboards", uid);
-      await setDoc(leaderboardRef, {
-        uid,
-        heroName,
-        level: 1,
-        totalXP: 0,
-        equippedAvatar: "knight",
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+      const leaderboardRef = doc(db, "leaderboard", uid);
+      await setDoc(
+        leaderboardRef,
+        {
+          uid,
+          heroName,
+          class: heroClass,
+          level: 1,
+          totalXP: 0,
+          streak: 1,
+          equippedAvatarId: "avatar_knight_01",
+          equippedTitle: "Novice Adventurer",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       console.log(`[Schema Initializer] Successfully initialized Firestore schema for user: ${uid}`);
     }

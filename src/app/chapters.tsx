@@ -18,8 +18,8 @@ import {
   Chapter,
   ChapterBoss,
   getChapterProgress,
-} from "./utils/chapters";
-import { RPGTheme } from "./utils/rpgTheme";
+} from "@/utils/chapters";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 import { HeadingText, TitleText, BodyText, StatsText, ButtonText, AppText } from "@/components/Typography";
 

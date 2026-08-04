@@ -2,7 +2,7 @@ import React from "react";
 import { useRouter } from "expo-router";
 import { StyleSheet, TouchableOpacity, View, Dimensions } from "react-native";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
-import { RPGTheme } from "../utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import { HeadingText, TitleText, BodyText, ButtonText } from "@/components/Typography";
 
 const { width } = Dimensions.get("window");

@@ -1,8 +1,5 @@
-import { auth, db } from "@/lib/firebase";
-import { initializeUserSchema } from "../utils/firestoreSchema";
+import UserService from "@/services/userService";
 import { router } from "expo-router";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,7 +20,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
-import { RPGTheme } from "../utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import { HeadingText, TitleText, BodyText, ButtonText, AppText } from "@/components/Typography";
 
 const DURATION = 650;
@@ -172,15 +169,12 @@ export default function RegisterScreen() {
 
     try {
       setLoading(true);
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        email.trim().toLowerCase(),
-        password
-      );
-
-      const user = userCredential.user;
-
-      await initializeUserSchema(user.uid, heroName.trim(), "warrior");
+      await UserService.signUp({
+        email: email.trim().toLowerCase(),
+        password,
+        heroName: heroName.trim(),
+        heroClass: "warrior",
+      });
 
       if (Platform.OS === "web") {
         window.alert("Hero Created Successfully!");

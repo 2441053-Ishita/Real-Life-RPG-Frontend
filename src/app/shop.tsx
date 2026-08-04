@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { RPGTheme } from "./utils/rpgTheme";
+import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
 
 type ShopItem = {
@@ -136,15 +136,15 @@ export default function ShopScreen() {
               item.category === "title"
                 ? ownedTitles.includes(item.id)
                 : item.category === "theme"
-                ? ownedThemes.includes(item.id)
-                : ownedAvatars.includes(item.id);
+                  ? ownedThemes.includes(item.id)
+                  : ownedAvatars.includes(item.id);
 
             const isEquipped =
               item.category === "title"
                 ? equippedTitle === item.id
                 : item.category === "theme"
-                ? equippedTheme === item.id
-                : equippedAvatar === item.id;
+                  ? equippedTheme === item.id
+                  : equippedAvatar === item.id;
 
             return (
               <View
