@@ -9,6 +9,8 @@ import {
   serverTimestamp,
   query,
   orderBy,
+  onSnapshot,
+  Unsubscribe,
 } from "firebase/firestore";
 
 export type QuestDifficulty = "easy" | "medium" | "hard" | "epic";
@@ -22,6 +24,9 @@ export interface QuestData {
   xpReward: number;
   coinReward: number;
   completed: boolean;
+  active?: boolean;
+  locked?: boolean;
+  emoji?: string;
   createdAt?: any;
   updatedAt?: any;
   [key: string]: any;
@@ -34,6 +39,92 @@ export type CreateQuestInput = Omit<
 
 export class QuestService {
   /**
+   * Subscribes to real-time updates for custom quests from users/{uid}/quests.
+   */
+  static listenToUserQuests(
+    uid: string,
+    onNext: (quests: QuestData[]) => void,
+    onError?: (error: Error) => void
+  ): Unsubscribe {
+    const questsRef = collection(db, "users", uid, "quests");
+    const q = query(questsRef, orderBy("createdAt", "asc"));
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const quests: QuestData[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() || {};
+          return {
+            id: docSnap.id,
+            title: data.title ?? "",
+            description: data.description ?? "",
+            difficulty: data.difficulty ?? "easy",
+            category: data.category ?? "general",
+            xpReward: data.xpReward ?? 10,
+            coinReward: data.coinReward ?? 5,
+            completed: Boolean(data.completed),
+            active: Boolean(data.active),
+            locked: Boolean(data.locked),
+            emoji: data.emoji || "📜",
+            createdAt: data.createdAt ?? null,
+            updatedAt: data.updatedAt ?? null,
+            ...data,
+          };
+        });
+        onNext(quests);
+      },
+      (err) => {
+        console.error("[QuestService] Error listening to user quests:", err);
+        if (onError) onError(err);
+      }
+    );
+  }
+
+  /**
+   * Subscribes to real-time updates for daily quests from users/{uid}/dailyQuests.
+   */
+  static listenToDailyQuests(
+    uid: string,
+    onNext: (quests: QuestData[]) => void,
+    onError?: (error: Error) => void
+  ): Unsubscribe {
+    const dailyRef = collection(db, "users", uid, "dailyQuests");
+
+    return onSnapshot(
+      dailyRef,
+      (snapshot) => {
+        const quests: QuestData[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() || {};
+          return {
+            id: docSnap.id,
+            title: data.title ?? "Daily Quest",
+            description: data.description ?? "",
+            difficulty: data.difficulty ?? "easy",
+            category: data.category ?? "general",
+            xpReward: data.xpReward ?? 10,
+            coinReward: data.coinReward ?? 5,
+            completed: Boolean(data.completed),
+            active: Boolean(data.active),
+            locked: Boolean(data.locked),
+            emoji: data.emoji || "⚔️",
+            createdAt: data.createdAt ?? null,
+            updatedAt: data.updatedAt ?? null,
+            ...data,
+          };
+        });
+
+        // Ensure natural ordering by ID (daily-1, daily-2, daily-3, daily-4)
+        quests.sort((a, b) => (a.id || "").localeCompare(b.id || ""));
+        onNext(quests);
+      },
+      (err) => {
+        console.error("[QuestService] Error listening to daily quests:", err);
+        if (onError) onError(err);
+      }
+    );
+  }
+
+  /**
    * Fetches all quests for a given user from users/{uid}/quests collection.
    */
   static async getUserQuests(uid: string): Promise<QuestData[]> {
@@ -42,7 +133,7 @@ export class QuestService {
       const q = query(questsRef, orderBy("createdAt", "asc"));
       const snapshot = await getDocs(q);
 
-      const quests: QuestData[] = snapshot.docs.map((docSnap) => {
+      return snapshot.docs.map((docSnap) => {
         const data = docSnap.data() || {};
         return {
           id: docSnap.id,
@@ -53,13 +144,13 @@ export class QuestService {
           xpReward: data.xpReward ?? 0,
           coinReward: data.coinReward ?? 0,
           completed: data.completed ?? false,
+          active: Boolean(data.active),
+          locked: Boolean(data.locked),
           createdAt: data.createdAt ?? null,
           updatedAt: data.updatedAt ?? null,
           ...data,
         };
       });
-
-      return quests;
     } catch (error) {
       console.error("[QuestService] Error getting user quests:", error);
       return [];
@@ -83,6 +174,9 @@ export class QuestService {
         xpReward: questData.xpReward ?? 10,
         coinReward: questData.coinReward ?? 5,
         completed: questData.completed ?? false,
+        active: questData.active ?? true,
+        locked: questData.locked ?? false,
+        emoji: questData.emoji || "📜",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -132,10 +226,11 @@ export class QuestService {
   }
 }
 
-// Standalone function exports for maximum convenience
 export const getUserQuests = QuestService.getUserQuests;
 export const createQuest = QuestService.createQuest;
 export const updateQuest = QuestService.updateQuest;
 export const deleteQuest = QuestService.deleteQuest;
+export const listenToUserQuests = QuestService.listenToUserQuests;
+export const listenToDailyQuests = QuestService.listenToDailyQuests;
 
 export default QuestService;

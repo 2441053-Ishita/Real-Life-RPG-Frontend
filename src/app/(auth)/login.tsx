@@ -84,8 +84,15 @@ export default function LoginScreen() {
           editable={!loading}
         />
 
-        {/* PASSWORD */}
-        <HeadingText style={styles.label}>PASSWORD</HeadingText>
+        <View style={styles.passwordHeaderRow}>
+          <HeadingText style={styles.label}>PASSWORD</HeadingText>
+          <TouchableOpacity
+            disabled={loading}
+            onPress={() => router.push("/(auth)/forgot-password")}
+          >
+            <BodyText style={styles.forgotText}>Forgot Password?</BodyText>
+          </TouchableOpacity>
+        </View>
         <TextInput
           placeholder="Enter your password"
           placeholderTextColor={RPGTheme.colors.textMuted}
@@ -202,12 +209,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
+  passwordHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
   label: {
     color: RPGTheme.colors.purpleSecondary,
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1.5,
-    marginBottom: 6,
+  },
+  forgotText: {
+    color: RPGTheme.colors.purpleSecondary,
+    fontSize: 10,
+    fontWeight: "800",
   },
   input: {
     backgroundColor: RPGTheme.colors.secondaryCard,

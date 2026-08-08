@@ -1,6 +1,6 @@
 import { auth, db } from "@/lib/firebase";
 import { router } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -20,6 +20,7 @@ type HeroData = {
     heroName: string;
     level: number;
     totalXP: number;
+    coins: number;
     streak: number;
     totalQuestsCompleted: number;
     completedQuests: string[];
@@ -34,6 +35,7 @@ type Achievement = {
     category: string;
     current: number;
     target: number;
+    unit: string;
 };
 
 // ============================================
@@ -42,10 +44,13 @@ type Achievement = {
 
 export default function AchievementsScreen() {
     const [hero, setHero] = useState<HeroData | null>(null);
+    const [inventoryCount, setInventoryCount] = useState<number>(0);
+    const [bossesDefeated, setBossesDefeated] = useState<number>(0);
+    const [historyCount, setHistoryCount] = useState<number>(0);
     const [loading, setLoading] = useState(true);
 
     // ============================================
-    // LOAD HERO
+    // LOAD HERO & FIRESTORE METRICS LIVE
     // ============================================
 
     useEffect(() => {
@@ -57,8 +62,7 @@ export default function AchievementsScreen() {
         }
 
         const userRef = doc(db, "users", user.uid);
-
-        const unsubscribe = onSnapshot(
+        const unsubUser = onSnapshot(
             userRef,
             (snapshot) => {
                 if (!snapshot.exists()) {
@@ -69,60 +73,67 @@ export default function AchievementsScreen() {
 
                 const data = snapshot.data();
 
-                const completedQuests = Array.isArray(
-                    data.completedQuests
-                )
-                    ? data.completedQuests.map((id: unknown) =>
-                        String(id)
-                    )
+                const completedQuests = Array.isArray(data.completedQuests)
+                    ? data.completedQuests.map((id: unknown) => String(id))
                     : [];
 
-                const unlockedAchievements = Array.isArray(
-                    data.unlockedAchievements
-                )
-                    ? data.unlockedAchievements.map((id: unknown) =>
-                        String(id)
-                    )
+                const unlockedAchievements = Array.isArray(data.unlockedAchievements)
+                    ? data.unlockedAchievements.map((id: unknown) => String(id))
                     : [];
 
                 setHero({
                     heroName: data.heroName || "Hero",
-
                     level: data.level ?? 1,
-
-                    totalXP: data.totalXP ?? 0,
-
-                    streak: data.streak ?? 0,
-
-                    totalQuestsCompleted:
-                        data.totalQuestsCompleted ??
-                        completedQuests.length,
-
+                    totalXP: data.totalXP ?? data.xp ?? 0,
+                    coins: data.coins ?? 0,
+                    streak: Number(data.currentStreak ?? data.streak ?? 0),
+                    totalQuestsCompleted: data.totalQuestsCompleted ?? completedQuests.length,
                     completedQuests,
-
                     unlockedAchievements,
                 });
 
                 setLoading(false);
             },
             (error) => {
-                console.error(
-                    "ACHIEVEMENTS FIRESTORE ERROR:",
-                    error
-                );
-
+                console.error("ACHIEVEMENTS FIRESTORE ERROR:", error);
                 setLoading(false);
             }
         );
 
-        return () => unsubscribe();
+        // 2. Inventory collection snapshot
+        const inventoryRef = collection(db, "users", user.uid, "inventory");
+        const unsubInv = onSnapshot(inventoryRef, (snap) => {
+            setInventoryCount(snap.docs.length);
+        });
+
+        // 3. Boss Victories collection snapshot
+        const bossRef = collection(db, "users", user.uid, "bossVictories");
+        const unsubBoss = onSnapshot(bossRef, (snap) => {
+            setBossesDefeated(snap.docs.length);
+        });
+
+        // 4. Quest History collection snapshot
+        const historyRef = collection(db, "users", user.uid, "questHistory");
+        const unsubHistory = onSnapshot(historyRef, (snap) => {
+            setHistoryCount(snap.docs.length);
+        });
+
+        return () => {
+            unsubUser();
+            unsubInv();
+            unsubBoss();
+            unsubHistory();
+        };
     }, []);
 
     // ============================================
     // VALUES
     // ============================================
 
-    const totalQuests = hero?.totalQuestsCompleted ?? 0;
+    const totalQuests = Math.max(hero?.totalQuestsCompleted ?? 0, historyCount);
+    const coins = hero?.coins ?? 0;
+    const streak = hero?.streak ?? 0;
+    const totalXP = hero?.totalXP ?? 0;
 
     const achievements: Achievement[] = hero
         ? [
@@ -134,66 +145,97 @@ export default function AchievementsScreen() {
                 category: "QUESTS",
                 current: totalQuests,
                 target: 1,
+                unit: "Quests",
             },
-
             {
                 id: "rising-hero",
                 emoji: "⭐",
                 title: "Rising Hero",
                 description: "Earn 100 total XP.",
                 category: "XP",
-                current: hero.totalXP,
+                current: totalXP,
                 target: 100,
+                unit: "XP",
             },
-
             {
                 id: "quest-master",
                 emoji: "⚔️",
                 title: "Quest Master",
-                description: "Complete 25 quests.",
+                description: "Complete 20 quests.",
                 category: "QUESTS",
                 current: totalQuests,
-                target: 25,
+                target: 20,
+                unit: "Quests",
             },
-
+            {
+                id: "collector",
+                emoji: "🎒",
+                title: "Collector",
+                description: "Collect 50 inventory items.",
+                category: "COLLECTION",
+                current: inventoryCount,
+                target: 50,
+                unit: "Items",
+            },
+            {
+                id: "boss-slayer",
+                emoji: "🐉",
+                title: "Boss Slayer",
+                description: "Defeat 5 Realm Bosses.",
+                category: "COMBAT",
+                current: bossesDefeated,
+                target: 5,
+                unit: "Bosses",
+            },
+            {
+                id: "rich-hero",
+                emoji: "🪙",
+                title: "Rich Hero",
+                description: "Accumulate 1000 gold coins.",
+                category: "WEALTH",
+                current: coins,
+                target: 1000,
+                unit: "Coins",
+            },
             {
                 id: "streak-3",
                 emoji: "🔥",
-                title: "Getting Started",
+                title: "Streak King",
                 description: "Reach a 3 day streak.",
                 category: "STREAK",
-                current: hero.streak,
+                current: streak,
                 target: 3,
+                unit: "Days",
             },
-
             {
                 id: "streak-7",
                 emoji: "🔥",
                 title: "On Fire",
                 description: "Reach a 7 day streak.",
                 category: "STREAK",
-                current: hero.streak,
+                current: streak,
                 target: 7,
+                unit: "Days",
             },
-
             {
                 id: "streak-14",
                 emoji: "⚡",
                 title: "Unstoppable",
                 description: "Reach a 14 day streak.",
                 category: "STREAK",
-                current: hero.streak,
+                current: streak,
                 target: 14,
+                unit: "Days",
             },
-
             {
                 id: "streak-30",
                 emoji: "👑",
                 title: "Legendary Discipline",
                 description: "Reach a 30 day streak.",
                 category: "STREAK",
-                current: hero.streak,
+                current: streak,
                 target: 30,
+                unit: "Days",
             },
         ]
         : [];
@@ -592,34 +634,31 @@ export default function AchievementsScreen() {
                                     {achievement.category}
                                 </Text>
 
-                                {!unlocked && (
-                                    <>
-                                        <View style={styles.progressHeader}>
-                                            <Text style={styles.progressText}>
-                                                Progress
-                                            </Text>
+                                <View style={styles.progressHeader}>
+                                    <Text style={styles.progressText}>
+                                        Progress ({Math.min(100, Math.round(progressPercent))}%)
+                                    </Text>
 
-                                            <Text style={styles.progressText}>
-                                                {Math.min(
-                                                    achievement.current,
-                                                    achievement.target
-                                                )}{" "}
-                                                / {achievement.target}
-                                            </Text>
-                                        </View>
+                                    <Text style={styles.progressText}>
+                                        {Math.min(
+                                            achievement.current,
+                                            achievement.target
+                                        )}{" "}
+                                        / {achievement.target} {achievement.unit}
+                                    </Text>
+                                </View>
 
-                                        <View style={styles.progressTrack}>
-                                            <View
-                                                style={[
-                                                    styles.progressFill,
-                                                    {
-                                                        width: `${progressPercent}%`,
-                                                    },
-                                                ]}
-                                            />
-                                        </View>
-                                    </>
-                                )}
+                                <View style={styles.progressTrack}>
+                                    <View
+                                        style={[
+                                            styles.progressFill,
+                                            {
+                                                width: `${progressPercent}%`,
+                                                backgroundColor: unlocked ? "#F59E0B" : "#7C3AED",
+                                            },
+                                        ]}
+                                    />
+                                </View>
                             </View>
                         </View>
                     );

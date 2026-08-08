@@ -6,7 +6,6 @@ import { collection, onSnapshot } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   Modal,
   ScrollView,
   StyleSheet,
@@ -22,7 +21,9 @@ export type LeaderboardUser = {
   avatar: string;
   heroClass: string;
   level: number;
+  heroTitle: string;
   totalXP: number;
+  coins: number;
   weeklyXP: number;
   monthlyXP: number;
   currentStreak: number;
@@ -43,6 +44,14 @@ const CLASS_EMOJIS: Record<string, string> = {
   archer: "🏹",
   assassin: "🥷",
 };
+
+export function getHeroTitleByLevel(level: number): string {
+  if (level >= 20) return "Legend";
+  if (level >= 15) return "Champion";
+  if (level >= 10) return "Warrior";
+  if (level >= 5) return "Adventurer";
+  return "Rookie";
+}
 
 function getLeaderboardBadge(rank: number): { text: string; icon: string; bg: string; color: string } | null {
   if (rank === 1) {
@@ -91,17 +100,22 @@ export default function LeaderboardScreen() {
               : 0
           );
 
+          const level = Number(data.level ?? 1);
           const totalXP = Number(data.totalXP ?? data.xp ?? 0);
+          const coins = Number(data.coins ?? 0);
           const currentStreak = Number(data.currentStreak ?? data.streak ?? 0);
           const longestStreak = Number(data.longestStreak ?? currentStreak);
+          const heroTitle = data.title || getHeroTitleByLevel(level);
 
           return {
             uid: docSnap.id,
             username: data.heroName || data.displayName || data.email?.split("@")[0] || "Hero Adventurer",
             avatar: avatarEmoji,
             heroClass: cls,
-            level: Number(data.level ?? 1),
+            level,
+            heroTitle,
             totalXP,
+            coins,
             weeklyXP: Number(data.weeklyXP ?? Math.round(totalXP * 0.35)),
             monthlyXP: Number(data.monthlyXP ?? Math.round(totalXP * 0.7)),
             currentStreak,
@@ -131,25 +145,23 @@ export default function LeaderboardScreen() {
     const list = [...rawUsers];
 
     if (selectedTab === "global") {
-      // Primary: Total XP, Secondary: Level, Tertiary: Current Streak
+      // Primary: Total XP descending; Secondary: Current Streak descending; Tertiary: Level
       list.sort((a, b) => {
         if (b.totalXP !== a.totalXP) return b.totalXP - a.totalXP;
-        if (b.level !== a.level) return b.level - a.level;
-        return b.currentStreak - a.currentStreak;
+        if (b.currentStreak !== a.currentStreak) return b.currentStreak - a.currentStreak;
+        return b.level - a.level;
       });
     } else if (selectedTab === "weekly") {
-      // Primary: Weekly XP, Secondary: Weekly Quests Completed
       list.sort((a, b) => {
         if (b.weeklyXP !== a.weeklyXP) return b.weeklyXP - a.weeklyXP;
-        if (b.weeklyQuestsCompleted !== a.weeklyQuestsCompleted) return b.weeklyQuestsCompleted - a.weeklyQuestsCompleted;
-        return b.currentStreak - a.currentStreak;
+        if (b.currentStreak !== a.currentStreak) return b.currentStreak - a.currentStreak;
+        return b.weeklyQuestsCompleted - a.weeklyQuestsCompleted;
       });
     } else if (selectedTab === "monthly") {
-      // Primary: Monthly XP, Secondary: Monthly Quests Completed
       list.sort((a, b) => {
         if (b.monthlyXP !== a.monthlyXP) return b.monthlyXP - a.monthlyXP;
-        if (b.monthlyQuestsCompleted !== a.monthlyQuestsCompleted) return b.monthlyQuestsCompleted - a.monthlyQuestsCompleted;
-        return b.currentStreak - a.currentStreak;
+        if (b.currentStreak !== a.currentStreak) return b.currentStreak - a.currentStreak;
+        return b.monthlyQuestsCompleted - a.monthlyQuestsCompleted;
       });
     }
 
@@ -167,8 +179,18 @@ export default function LeaderboardScreen() {
     );
   }, [rankedUsers, searchQuery]);
 
-  const top3 = useMemo(() => filteredUsers.slice(0, 3), [filteredUsers]);
+  // Top 50 Users Limit
+  const top50Users = useMemo(() => {
+    return filteredUsers.slice(0, 50);
+  }, [filteredUsers]);
 
+  // Top 3 Podium
+  const top3 = useMemo(() => top50Users.slice(0, 3), [top50Users]);
+
+  // Ranked List below Top 3 (ranks 4 through 50)
+  const restOfTop50 = useMemo(() => top50Users.slice(3), [top50Users]);
+
+  // Current logged in user's rank info (find from full rankedUsers even if outside top 50)
   const currentUserData = useMemo(() => {
     return rankedUsers.find((u) => u.uid === currentUserId);
   }, [rankedUsers, currentUserId]);
@@ -184,30 +206,13 @@ export default function LeaderboardScreen() {
 
   return (
     <View style={styles.screen}>
-      <RPGHeader title="Realm Leaderboard" />
+      <RPGHeader title="Global Leaderboard" />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* HEADER TITLE & SUBTITLE */}
         <Text style={styles.eyebrow}>HALL OF FAME</Text>
-        <Text style={styles.title}>🏆 Hero Leaderboard</Text>
-        <Text style={styles.subtitle}>Compete across Global, Weekly, and Monthly rankings</Text>
-
-        {/* LOGGED IN USER RANKING BANNER */}
-        {currentUserData && (
-          <View style={styles.myRankBanner}>
-            <Text style={styles.myRankBannerTitle}>YOUR RANKING ({selectedTab.toUpperCase()})</Text>
-            <View style={styles.myRankRow}>
-              <Text style={styles.myRankBadge}>Your Rank: #{currentUserData.rank}</Text>
-              <Text style={styles.myRankAvatar}>{currentUserData.avatar}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.myRankName}>{currentUserData.username} (YOU)</Text>
-                <Text style={styles.myRankStats}>
-                  Lvl {currentUserData.level} • {selectedTab === "global" ? `${currentUserData.totalXP} XP` : selectedTab === "weekly" ? `${currentUserData.weeklyXP} XP` : `${currentUserData.monthlyXP} XP`} • 🔥 {currentUserData.currentStreak}d Streak
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
+        <Text style={styles.title}>🏆 Global Leaderboard</Text>
+        <Text style={styles.subtitle}>Compete with heroes worldwide across Total XP and Streaks</Text>
 
         {/* SEARCH BAR */}
         <View style={styles.searchContainer}>
@@ -215,7 +220,7 @@ export default function LeaderboardScreen() {
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search heroes by username..."
+            placeholder="Search heroes by name..."
             placeholderTextColor={RPGTheme.colors.textMuted}
             style={styles.searchInput}
           />
@@ -249,7 +254,7 @@ export default function LeaderboardScreen() {
           </View>
         ) : (
           <>
-            {/* TOP 3 PODIUM */}
+            {/* TOP 3 PODIUM (GOLD, SILVER, BRONZE CARDS WITH CROWN & MEDAL STYLING) */}
             {top3.length > 0 && !searchQuery.trim() && (
               <View style={styles.podiumContainer}>
                 {/* 2nd PLACE - SILVER */}
@@ -265,11 +270,16 @@ export default function LeaderboardScreen() {
                     <Text style={styles.podiumName} numberOfLines={1}>
                       {top3[1].username}
                     </Text>
+                    <Text style={styles.podiumTitleSub}>{top3[1].heroTitle} • Lvl {top3[1].level}</Text>
                     <Text style={styles.podiumXP}>
                       ⚡ {selectedTab === "global" ? top3[1].totalXP : selectedTab === "weekly" ? top3[1].weeklyXP : top3[1].monthlyXP} XP
                     </Text>
+                    <View style={styles.podiumDetailRow}>
+                      <Text style={styles.podiumDetailText}>🪙 {top3[1].coins}</Text>
+                      <Text style={styles.podiumDetailText}>🔥 {top3[1].currentStreak}d</Text>
+                    </View>
                     <View style={styles.podiumBadge}>
-                      <Text style={styles.podiumBadgeText}>🥈 Elite #2</Text>
+                      <Text style={styles.podiumBadgeText}>🥈 #2 Silver</Text>
                     </View>
                   </TouchableOpacity>
                 )}
@@ -287,11 +297,16 @@ export default function LeaderboardScreen() {
                     <Text style={styles.podiumGoldName} numberOfLines={1}>
                       {top3[0].username}
                     </Text>
+                    <Text style={styles.podiumGoldTitleSub}>{top3[0].heroTitle} • Lvl {top3[0].level}</Text>
                     <Text style={styles.podiumGoldXP}>
                       ⚡ {selectedTab === "global" ? top3[0].totalXP : selectedTab === "weekly" ? top3[0].weeklyXP : top3[0].monthlyXP} XP
                     </Text>
+                    <View style={styles.podiumDetailRow}>
+                      <Text style={styles.podiumGoldDetailText}>🪙 {top3[0].coins}</Text>
+                      <Text style={styles.podiumGoldDetailText}>🔥 {top3[0].currentStreak}d</Text>
+                    </View>
                     <View style={styles.podiumGoldBadge}>
-                      <Text style={styles.podiumGoldBadgeText}>🥇 Champion #1</Text>
+                      <Text style={styles.podiumGoldBadgeText}>🥇 #1 Champion</Text>
                     </View>
                   </TouchableOpacity>
                 )}
@@ -309,24 +324,29 @@ export default function LeaderboardScreen() {
                     <Text style={styles.podiumName} numberOfLines={1}>
                       {top3[2].username}
                     </Text>
+                    <Text style={styles.podiumTitleSub}>{top3[2].heroTitle} • Lvl {top3[2].level}</Text>
                     <Text style={styles.podiumXP}>
                       ⚡ {selectedTab === "global" ? top3[2].totalXP : selectedTab === "weekly" ? top3[2].weeklyXP : top3[2].monthlyXP} XP
                     </Text>
+                    <View style={styles.podiumDetailRow}>
+                      <Text style={styles.podiumDetailText}>🪙 {top3[2].coins}</Text>
+                      <Text style={styles.podiumDetailText}>🔥 {top3[2].currentStreak}d</Text>
+                    </View>
                     <View style={styles.podiumBadge}>
-                      <Text style={styles.podiumBadgeText}>🥉 Elite #3</Text>
+                      <Text style={styles.podiumBadgeText}>🥉 #3 Bronze</Text>
                     </View>
                   </TouchableOpacity>
                 )}
               </View>
             )}
 
-            {/* FULL RANKINGS LIST */}
-            <Text style={styles.sectionTitle}>📜 All Realm Heroes</Text>
+            {/* RANKED LIST BELOW TOP 3 (Top 50) */}
+            <Text style={styles.sectionTitle}>📜 Top 50 Leaderboard Rankings</Text>
 
             <View style={styles.rankingsCard}>
-              {filteredUsers.map((item, index) => {
+              {(searchQuery.trim() ? top50Users : restOfTop50).map((item, index) => {
                 const isMe = item.uid === currentUserId;
-                const badge = getLeaderboardBadge(item.rank ?? index + 1);
+                const badge = getLeaderboardBadge(item.rank ?? index + 4);
                 const displayXP = selectedTab === "global" ? item.totalXP : selectedTab === "weekly" ? item.weeklyXP : item.monthlyXP;
 
                 return (
@@ -337,11 +357,8 @@ export default function LeaderboardScreen() {
                       onPress={() => setSelectedUser(item)}
                       style={[styles.rankRow, isMe && styles.highlightMeRow]}
                     >
-                      {/* CROWN OR RANK NUMBER */}
-                      <View style={{ width: 34, alignItems: "center" }}>
-                        {item.rank && item.rank <= 3 ? (
-                          <Text style={{ fontSize: 16 }}>👑</Text>
-                        ) : null}
+                      {/* RANK NUMBER */}
+                      <View style={{ width: 38, alignItems: "center" }}>
                         <Text
                           style={[
                             styles.rankNumber,
@@ -380,7 +397,7 @@ export default function LeaderboardScreen() {
                         </View>
 
                         <Text style={styles.rankSubtext}>
-                          ⭐ Lvl {item.level} • 🔥 {item.currentStreak}d Streak • 🏆 {item.questsCompleted} Quests
+                          👑 {item.heroTitle} • Lvl {item.level} • 🪙 {item.coins} • 🔥 {item.currentStreak}d
                         </Text>
                       </View>
 
@@ -404,6 +421,31 @@ export default function LeaderboardScreen() {
           <Text style={styles.backButtonText}>← Return to Profile</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* PERSISTENT BOTTOM FOOTER: YOUR RANK (EVEN IF OUTSIDE TOP 50) */}
+      {currentUserData && (
+        <View style={styles.yourRankFooterContainer}>
+          <View style={styles.yourRankFooterCard}>
+            <View style={styles.yourRankHeaderRow}>
+              <Text style={styles.yourRankHeaderTitle}>YOUR RANK ({selectedTab.toUpperCase()})</Text>
+              <Text style={styles.yourRankNumber}>#{currentUserData.rank}</Text>
+            </View>
+            <View style={styles.yourRankBodyRow}>
+              <Text style={styles.yourRankAvatar}>{currentUserData.avatar}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.yourRankName}>{currentUserData.username} (YOU)</Text>
+                <Text style={styles.yourRankSubtext}>
+                  👑 {currentUserData.heroTitle} • Level {currentUserData.level}
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={styles.yourRankXP}>⚡ {selectedTab === "global" ? currentUserData.totalXP : selectedTab === "weekly" ? currentUserData.weeklyXP : currentUserData.monthlyXP} XP</Text>
+                <Text style={styles.yourRankSubtext}>🪙 {currentUserData.coins} • 🔥 {currentUserData.currentStreak}d Streak</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* PLAYER PROFILE MODAL */}
       <Modal
@@ -437,7 +479,7 @@ export default function LeaderboardScreen() {
                       )}
                     </View>
                     <Text style={styles.modalClass}>
-                      Rank #{selectedUser.rank} • {selectedUser.heroClass.toUpperCase()} HERO
+                      Rank #{selectedUser.rank} • {selectedUser.heroTitle} • Lvl {selectedUser.level}
                     </Text>
                   </View>
 
@@ -458,6 +500,12 @@ export default function LeaderboardScreen() {
                 {/* PLAYER STATS GRID */}
                 <View style={styles.modalStatsGrid}>
                   <View style={styles.modalStatBox}>
+                    <Text style={styles.modalStatEmoji}>👑</Text>
+                    <Text style={styles.modalStatVal}>{selectedUser.heroTitle}</Text>
+                    <Text style={styles.modalStatLbl}>Hero Title</Text>
+                  </View>
+
+                  <View style={styles.modalStatBox}>
                     <Text style={styles.modalStatEmoji}>⭐</Text>
                     <Text style={styles.modalStatVal}>{selectedUser.level}</Text>
                     <Text style={styles.modalStatLbl}>Hero Level</Text>
@@ -470,6 +518,12 @@ export default function LeaderboardScreen() {
                   </View>
 
                   <View style={styles.modalStatBox}>
+                    <Text style={styles.modalStatEmoji}>🪙</Text>
+                    <Text style={styles.modalStatVal}>{selectedUser.coins}</Text>
+                    <Text style={styles.modalStatLbl}>Coins</Text>
+                  </View>
+
+                  <View style={styles.modalStatBox}>
                     <Text style={styles.modalStatEmoji}>🔥</Text>
                     <Text style={styles.modalStatVal}>{selectedUser.currentStreak}d</Text>
                     <Text style={styles.modalStatLbl}>Current Streak</Text>
@@ -479,24 +533,6 @@ export default function LeaderboardScreen() {
                     <Text style={styles.modalStatEmoji}>🏆</Text>
                     <Text style={styles.modalStatVal}>{selectedUser.longestStreak}d</Text>
                     <Text style={styles.modalStatLbl}>Longest Streak</Text>
-                  </View>
-
-                  <View style={styles.modalStatBox}>
-                    <Text style={styles.modalStatEmoji}>⚔️</Text>
-                    <Text style={styles.modalStatVal}>{selectedUser.questsCompleted}</Text>
-                    <Text style={styles.modalStatLbl}>Quests Done</Text>
-                  </View>
-
-                  <View style={styles.modalStatBox}>
-                    <Text style={styles.modalStatEmoji}>🏅</Text>
-                    <Text style={styles.modalStatVal}>{selectedUser.achievementsEarned}</Text>
-                    <Text style={styles.modalStatLbl}>Achievements</Text>
-                  </View>
-
-                  <View style={[styles.modalStatBox, { width: "100%" }]}>
-                    <Text style={styles.modalStatEmoji}>📦</Text>
-                    <Text style={styles.modalStatVal}>{selectedUser.inventoryCount} Items</Text>
-                    <Text style={styles.modalStatLbl}>Inventory Items Unlocked</Text>
                   </View>
                 </View>
 
@@ -533,7 +569,7 @@ const styles = StyleSheet.create({
   },
   container: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
   eyebrow: {
     color: RPGTheme.colors.purplePrimary,
@@ -552,45 +588,6 @@ const styles = StyleSheet.create({
     color: RPGTheme.colors.textMuted,
     fontSize: 12,
     marginBottom: 16,
-  },
-  myRankBanner: {
-    backgroundColor: "rgba(124, 58, 237, 0.15)",
-    borderColor: "#7C3AED",
-    borderWidth: 1.5,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-  },
-  myRankBannerTitle: {
-    color: "#A78BFA",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  myRankRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  myRankBadge: {
-    color: "#F59E0B",
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  myRankAvatar: {
-    fontSize: 24,
-  },
-  myRankName: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  myRankStats: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 11,
-    marginTop: 2,
-    fontWeight: "700",
   },
   searchContainer: {
     flexDirection: "row",
@@ -650,13 +647,13 @@ const styles = StyleSheet.create({
   },
   emptyEmoji: {
     fontSize: 40,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   emptyTitle: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 16,
     fontWeight: "800",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   emptyText: {
     color: RPGTheme.colors.textMuted,
@@ -665,106 +662,133 @@ const styles = StyleSheet.create({
   },
   podiumContainer: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "flex-end",
+    justifyContent: "center",
     gap: 10,
     marginBottom: 24,
-    marginTop: 8,
+    marginTop: 10,
   },
   podiumColumn: {
     flex: 1,
-    backgroundColor: RPGTheme.colors.primaryCard,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: RPGTheme.colors.cardBorder,
     padding: 12,
     alignItems: "center",
+    borderWidth: 1.5,
   },
   podiumGold: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
     borderColor: "#F59E0B",
-    borderWidth: 2,
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
     paddingVertical: 18,
-    marginTop: -16,
   },
   podiumSilver: {
+    backgroundColor: "rgba(148, 163, 184, 0.12)",
     borderColor: "#94A3B8",
     paddingVertical: 14,
   },
   podiumBronze: {
+    backgroundColor: "rgba(217, 119, 6, 0.12)",
     borderColor: "#D97706",
     paddingVertical: 14,
   },
   crownIconGold: {
     fontSize: 22,
-    marginBottom: -2,
+    marginBottom: 2,
   },
   crownIcon: {
     fontSize: 18,
-    marginBottom: -2,
+    marginBottom: 2,
   },
   podiumMedal: {
-    fontSize: 22,
-    marginBottom: 6,
+    fontSize: 24,
+    marginBottom: 4,
   },
   podiumAvatarGold: {
-    fontSize: 32,
+    fontSize: 34,
     marginBottom: 6,
   },
   podiumAvatar: {
-    fontSize: 24,
+    fontSize: 28,
     marginBottom: 6,
   },
   podiumGoldName: {
-    color: "#F8FAFC",
-    fontSize: 13,
+    color: "#F59E0B",
+    fontSize: 14,
     fontWeight: "900",
+    textAlign: "center",
   },
   podiumName: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 12,
     fontWeight: "800",
+    textAlign: "center",
   },
-  podiumGoldXP: {
-    color: "#F59E0B",
-    fontSize: 12,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  podiumXP: {
-    color: "#A78BFA",
-    fontSize: 11,
+  podiumGoldTitleSub: {
+    color: "#FBBF24",
+    fontSize: 10,
     fontWeight: "700",
     marginTop: 2,
   },
+  podiumTitleSub: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  podiumGoldXP: {
+    color: "#FBBF24",
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  podiumXP: {
+    color: RPGTheme.colors.purplePrimary,
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  podiumDetailRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 4,
+  },
+  podiumGoldDetailText: {
+    color: "#FDE68A",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  podiumDetailText: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+  },
   podiumGoldBadge: {
     backgroundColor: "#F59E0B",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     marginTop: 8,
   },
   podiumGoldBadgeText: {
     color: "#0F172A",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "900",
   },
   podiumBadge: {
-    backgroundColor: "rgba(148, 163, 184, 0.2)",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     marginTop: 8,
   },
   podiumBadgeText: {
-    color: "#94A3B8",
+    color: RPGTheme.colors.textPrimary,
     fontSize: 9,
     fontWeight: "800",
   },
   sectionTitle: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
     marginBottom: 12,
   },
   rankingsCard: {
@@ -772,44 +796,61 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: RPGTheme.colors.cardBorder,
-    padding: 14,
-    marginBottom: 20,
+    overflow: "hidden",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: RPGTheme.colors.cardBorder,
   },
   rankRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderRadius: 10,
-    gap: 10,
+    padding: 12,
+    gap: 12,
   },
   highlightMeRow: {
-    backgroundColor: "rgba(124, 58, 237, 0.2)",
-    borderColor: "#7C3AED",
-    borderWidth: 1,
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
   },
   rankNumber: {
+    color: RPGTheme.colors.textMuted,
     fontSize: 13,
     fontWeight: "900",
-    textAlign: "center",
-    color: RPGTheme.colors.textPrimary,
   },
   rankAvatarBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(148, 163, 184, 0.15)",
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
     justifyContent: "center",
     alignItems: "center",
   },
   rankAvatarEmoji: {
-    fontSize: 18,
+    fontSize: 20,
   },
   rankUsername: {
     color: RPGTheme.colors.textPrimary,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "800",
-    maxWidth: 110,
+  },
+  youBadge: {
+    backgroundColor: "#F59E0B",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  youBadgeText: {
+    color: "#0F172A",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  customBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  customBadgeText: {
+    fontSize: 9,
+    fontWeight: "900",
   },
   rankSubtext: {
     color: RPGTheme.colors.textMuted,
@@ -818,58 +859,91 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   rankXP: {
-    color: "#F59E0B",
+    color: RPGTheme.colors.purplePrimary,
     fontSize: 13,
     fontWeight: "900",
   },
-  youBadge: {
-    backgroundColor: "#F59E0B",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-  },
-  youBadgeText: {
-    color: "#0F172A",
-    fontSize: 8,
-    fontWeight: "900",
-  },
-  customBadge: {
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  customBadgeText: {
-    fontSize: 8,
-    fontWeight: "800",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "rgba(148, 163, 184, 0.12)",
-  },
   backButton: {
-    backgroundColor: RPGTheme.colors.purplePrimary,
-    borderRadius: 12,
-    paddingVertical: 14,
+    marginTop: 20,
+    paddingVertical: 12,
     alignItems: "center",
-    marginTop: 10,
+    backgroundColor: RPGTheme.colors.primaryCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: RPGTheme.colors.cardBorder,
   },
   backButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
+    color: RPGTheme.colors.textMuted,
+    fontSize: 13,
     fontWeight: "800",
   },
-
-  // MODAL STYLES
+  yourRankFooterContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(15, 23, 42, 0.95)",
+    borderTopWidth: 1.5,
+    borderTopColor: "#7C3AED",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  yourRankFooterCard: {
+    backgroundColor: "rgba(124, 58, 237, 0.18)",
+    borderRadius: 12,
+    borderColor: "#A78BFA",
+    borderWidth: 1,
+    padding: 10,
+  },
+  yourRankHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  yourRankHeaderTitle: {
+    color: "#A78BFA",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  yourRankNumber: {
+    color: "#F59E0B",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  yourRankBodyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  yourRankAvatar: {
+    fontSize: 22,
+  },
+  yourRankName: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  yourRankSubtext: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  yourRankXP: {
+    color: "#F59E0B",
+    fontSize: 12,
+    fontWeight: "900",
+  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   modalContent: {
     width: "100%",
-    maxWidth: 380,
     backgroundColor: RPGTheme.colors.primaryCard,
     borderRadius: 20,
     borderWidth: 1.5,
@@ -883,10 +957,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   modalAvatarBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(124, 58, 237, 0.2)",
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -899,15 +973,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   modalClass: {
-    color: RPGTheme.colors.purplePrimary,
+    color: RPGTheme.colors.textMuted,
     fontSize: 11,
     fontWeight: "700",
     marginTop: 2,
   },
   modalBadgeBanner: {
     borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    padding: 10,
     alignItems: "center",
     marginBottom: 16,
   },
@@ -918,27 +991,26 @@ const styles = StyleSheet.create({
   modalStatsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   modalStatBox: {
     width: "48%",
-    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.15)",
+    borderColor: RPGTheme.colors.cardBorder,
     padding: 10,
     alignItems: "center",
   },
   modalStatEmoji: {
-    fontSize: 20,
+    fontSize: 18,
     marginBottom: 4,
   },
   modalStatVal: {
     color: RPGTheme.colors.textPrimary,
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "900",
   },
   modalStatLbl: {
     color: RPGTheme.colors.textMuted,
@@ -954,7 +1026,7 @@ const styles = StyleSheet.create({
   },
   modalCloseText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

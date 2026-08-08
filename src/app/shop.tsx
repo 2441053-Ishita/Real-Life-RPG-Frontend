@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { RPGTheme } from "@/utils/rpgTheme";
 import RPGHeader from "@/components/RPGHeader";
+import NotificationService from "@/services/notificationService";
 
 type ShopItem = {
   id: string;
@@ -105,6 +106,12 @@ export default function ShopScreen() {
       });
 
       showToast("Purchase Successful! 🪙", `Unlocked ${item.name}!`);
+
+      NotificationService.addNotification(uid, {
+        type: "item_purchased",
+        title: "Item Purchased! 🪙",
+        message: `Purchased ${item.name} for ${item.price} Gold!`,
+      }).catch((e) => console.error("Notification error:", e));
     } catch (err: any) {
       showToast("Shop Error", err.message || "Failed to complete purchase.");
     }

@@ -1,7 +1,7 @@
 import { auth, db } from "@/lib/firebase";
 import LevelService from "@/services/levelService";
 import { router } from "expo-router";
-import { collection, doc, onSnapshot, query, orderBy, limit, getDocs } from "firebase/firestore";
+import { collection, doc, onSnapshot, getDocs } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 
 import {
@@ -44,9 +44,6 @@ type EquippedItemDetail = {
   rarity: string;
   attack?: number;
   defense?: number;
-  intelligence?: number;
-  vitality?: number;
-  speed?: number;
 };
 
 type ActivityItem = {
@@ -57,25 +54,23 @@ type ActivityItem = {
   time: string;
 };
 
-type BadgeItem = {
+type AchievementBadge = {
   id: string;
   title: string;
   icon: string;
-  unlocked: boolean;
+  description: string;
 };
 
-// ============================================
-// SYSTEM BADGES DEFINITION
-// ============================================
-const ALL_BADGES: BadgeItem[] = [
-  { id: "first-step", title: "First Step", icon: "🌱", unlocked: false },
-  { id: "rising-hero", title: "Rising Hero", icon: "⭐", unlocked: false },
-  { id: "quest-master", title: "Quest Master", icon: "⚔️", unlocked: false },
-  { id: "streak-7", title: "Streak Flame", icon: "🔥", unlocked: false },
-  { id: "streak-30", title: "30-Day Legend", icon: "👑", unlocked: false },
-  { id: "streak-100", title: "100-Day Mythic", icon: "🛡️", unlocked: false },
-  { id: "boss-slayer", title: "Boss Slayer", icon: "🐉", unlocked: false },
-  { id: "treasure-hunter", title: "Treasure Hunter", icon: "🎁", unlocked: false },
+const ALL_ACHIEVEMENTS: AchievementBadge[] = [
+  { id: "first-step", title: "First Step", icon: "🌱", description: "Completed your first quest" },
+  { id: "rising-hero", title: "Rising Hero", icon: "⭐", description: "Reached Level 5" },
+  { id: "quest-master", title: "Quest Master", icon: "⚔️", description: "Completed 25 total quests" },
+  { id: "streak-3", title: "3-Day Warrior", icon: "🥉", description: "Maintained a 3-day streak" },
+  { id: "streak-7", title: "7-Day Champion", icon: "🔥", description: "Maintained a 7-day streak" },
+  { id: "streak-14", title: "14-Day Master", icon: "🥇", description: "Maintained a 14-day streak" },
+  { id: "streak-30", title: "30-Day Legend", icon: "👑", description: "Maintained a 30-day streak" },
+  { id: "boss-slayer", title: "Boss Slayer", icon: "🐉", description: "Defeated your first Realm Boss" },
+  { id: "treasure-hunter", title: "Treasure Hunter", icon: "🎁", description: "Unlocked 10 inventory items" },
 ];
 
 export function getHeroTitleByLevel(level: number): string {
@@ -99,37 +94,27 @@ export default function HeroProfileDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [globalRank, setGlobalRank] = useState<number>(1);
 
-  // Character Stats (Sum of equipped items)
-  const [charStats, setCharStats] = useState({
-    attack: 0,
-    defense: 0,
-    intelligence: 0,
-    vitality: 0,
-    speed: 0,
-  });
-
   // Equipped Gear Breakdown
   const [equippedGear, setEquippedGear] = useState<Record<string, EquippedItemDetail | null>>({
     weapon: null,
-    armor: null,
     helmet: null,
+    armor: null,
     shield: null,
     boots: null,
     accessory: null,
   });
 
-  // Progression Counters
-  const [progression, setProgression] = useState({
+  // Lifetime Statistics Counters
+  const [stats, setStats] = useState({
     totalQuestsCompleted: 0,
     dailyQuestsCompleted: 0,
     customQuestsCompleted: 0,
     bossesDefeated: 0,
-    achievementsUnlocked: 0,
-    inventoryItemCount: 0,
+    inventoryCount: 0,
   });
 
-  // Latest 10 Activities Stream
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  // Recent Activities (Last 5 completed quests)
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
 
   const uid = auth.currentUser?.uid;
 
@@ -172,26 +157,29 @@ export default function HeroProfileDashboardScreen() {
       setLoading(false);
     });
 
-    // 2. Calculate Global Rank by querying users sorted by totalXP
+    // 2. Global Rank Calculation
     const usersCol = collection(db, "users");
     getDocs(usersCol).then((usersSnap) => {
       const allUsers = usersSnap.docs.map((d) => ({
         id: d.id,
         totalXP: Number(d.data().totalXP ?? 0),
+        currentStreak: Number(d.data().currentStreak ?? d.data().streak ?? 0),
       }));
-      allUsers.sort((a, b) => b.totalXP - a.totalXP);
+      allUsers.sort((a, b) => {
+        if (b.totalXP !== a.totalXP) return b.totalXP - a.totalXP;
+        return b.currentStreak - a.currentStreak;
+      });
       const myRank = allUsers.findIndex((u) => u.id === uid) + 1;
       setGlobalRank(myRank > 0 ? myRank : 1);
     }).catch((e) => console.error("Global rank calc error:", e));
 
-    // 3. Inventory & Equipped Stats Listener
+    // 3. Inventory & Equipped Gear Listener
     const inventoryRef = collection(db, "users", uid, "inventory");
     const unsubInv = onSnapshot(inventoryRef, (snapshot) => {
-      const stats = { attack: 0, defense: 0, intelligence: 0, vitality: 0, speed: 0 };
       const gear: Record<string, EquippedItemDetail | null> = {
         weapon: null,
-        armor: null,
         helmet: null,
+        armor: null,
         shield: null,
         boots: null,
         accessory: null,
@@ -200,67 +188,51 @@ export default function HeroProfileDashboardScreen() {
       snapshot.docs.forEach((docSnap) => {
         const d = docSnap.data();
         if (d.equipped) {
-          const atk = Number(d.attack ?? 0);
-          const def = Number(d.defense ?? 0);
-          const intel = Number(d.intelligence ?? 0);
-          const vit = Number(d.vitality ?? 0);
-          const spd = Number(d.speed ?? 0);
-
-          stats.attack += atk;
-          stats.defense += def;
-          stats.intelligence += intel;
-          stats.vitality += vit;
-          stats.speed += spd;
-
           const itemDetail: EquippedItemDetail = {
             name: d.name || "Equipped Item",
             icon: d.icon || "🛡️",
             rarity: d.rarity || "Common",
-            attack: atk,
-            defense: def,
-            intelligence: intel,
-            vitality: vit,
-            speed: spd,
+            attack: Number(d.attack ?? 0),
+            defense: Number(d.defense ?? 0),
           };
 
           const cat = (d.category || "").toLowerCase();
           const slot = (d.slot || "").toLowerCase();
 
           if (cat === "weapons" || cat === "weapon" || slot === "weapon") gear.weapon = itemDetail;
-          else if (cat === "armor" || cat === "armors" || slot === "armor") gear.armor = itemDetail;
           else if (cat === "helmets" || cat === "helmet" || slot === "helmet") gear.helmet = itemDetail;
+          else if (cat === "armor" || cat === "armors" || slot === "armor") gear.armor = itemDetail;
           else if (cat === "shields" || cat === "shield" || slot === "shield") gear.shield = itemDetail;
           else if (cat === "boots" || cat === "boot" || slot === "boots") gear.boots = itemDetail;
           else if (cat === "accessories" || cat === "accessory" || slot === "accessory") gear.accessory = itemDetail;
         }
       });
 
-      setCharStats(stats);
       setEquippedGear(gear);
-      setProgression((prev) => ({ ...prev, inventoryItemCount: snapshot.docs.length }));
+      setStats((prev) => ({ ...prev, inventoryCount: snapshot.docs.length }));
     });
 
-    // 4. Daily Quests Listener
+    // 4. Daily Quests Completed Listener
     const dailyRef = collection(db, "users", uid, "dailyQuests");
     const unsubDaily = onSnapshot(dailyRef, (snap) => {
       const count = snap.docs.filter((d) => d.data().completed === true).length;
-      setProgression((prev) => ({ ...prev, dailyQuestsCompleted: count }));
+      setStats((prev) => ({ ...prev, dailyQuestsCompleted: count }));
     });
 
-    // 5. Custom Quests Listener
-    const customRef = collection(db, "users", uid, "customQuests");
+    // 5. Custom Quests Completed Listener
+    const customRef = collection(db, "users", uid, "quests");
     const unsubCustom = onSnapshot(customRef, (snap) => {
       const count = snap.docs.filter((d) => d.data().completed === true).length;
-      setProgression((prev) => ({ ...prev, customQuestsCompleted: count }));
+      setStats((prev) => ({ ...prev, customQuestsCompleted: count }));
     });
 
     // 6. Boss Victories Listener
     const bossRef = collection(db, "users", uid, "bossVictories");
     const unsubBoss = onSnapshot(bossRef, (snap) => {
-      setProgression((prev) => ({ ...prev, bossesDefeated: snap.docs.length }));
+      setStats((prev) => ({ ...prev, bossesDefeated: snap.docs.length }));
     });
 
-    // 7. Quest History Listener for Recent 10 Activities
+    // 7. Quest History Listener (Last 5 completed quests)
     const historyRef = collection(db, "users", uid, "questHistory");
     const unsubHistory = onSnapshot(historyRef, (snap) => {
       const activityList: ActivityItem[] = snap.docs.map((docSnap) => {
@@ -268,15 +240,15 @@ export default function HeroProfileDashboardScreen() {
         const xp = d.xpEarned ?? d.xp ?? 20;
         return {
           id: docSnap.id,
-          icon: d.emoji || "✔",
+          icon: d.emoji || "⚔️",
           title: d.title || d.questTitle || "Completed Quest",
           detail: `+${xp} XP`,
           time: d.completedAt ? new Date(d.completedAt.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Today",
         };
       });
 
-      setActivities(activityList.slice(0, 10));
-      setProgression((prev) => ({
+      setRecentActivities(activityList.slice(0, 5));
+      setStats((prev) => ({
         ...prev,
         totalQuestsCompleted: snap.docs.length > 0 ? snap.docs.length : prev.totalQuestsCompleted,
       }));
@@ -316,170 +288,177 @@ export default function HeroProfileDashboardScreen() {
   const currentXP = hero.xp ?? (hero.totalXP % 100);
   const xpPct = Math.min(100, Math.max(0, Math.round((currentXP / xpNeeded) * 100)));
 
-  // Progression Percentages
-  const questPct = Math.min(100, Math.round((progression.totalQuestsCompleted / 50) * 100));
-  const dailyPct = Math.min(100, Math.round((progression.dailyQuestsCompleted / 20) * 100));
-  const customPct = Math.min(100, Math.round((progression.customQuestsCompleted / 10) * 100));
-  const bossPct = Math.min(100, Math.round((progression.bossesDefeated / 5) * 100));
-  const achPct = Math.min(100, Math.round((hero.unlockedAchievements.length / 12) * 100));
-  const invPct = Math.min(100, Math.round((progression.inventoryItemCount / 30) * 100));
-
   // Compute Account Created Date
   let accountCreatedStr = "Recently";
-  let daysActive = 1;
   if (hero.createdAt) {
     const createdDate = hero.createdAt.seconds ? new Date(hero.createdAt.seconds * 1000) : new Date(hero.createdAt);
     accountCreatedStr = createdDate.toLocaleDateString();
-    daysActive = Math.max(1, Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24)));
   }
+
+  // Recent 3 Unlocked Achievements
+  const unlockedBadges = ALL_ACHIEVEMENTS.filter((ach) =>
+    hero.unlockedAchievements.includes(ach.id)
+  );
+  const recent3Achievements = (unlockedBadges.length > 0 ? unlockedBadges : ALL_ACHIEVEMENTS.slice(0, 3)).slice(-3);
 
   return (
     <View style={styles.screen}>
-      <RPGHeader title="⚔ HERO PROFILE" />
+      <RPGHeader title="👤 HERO PROFILE" />
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        
         {/* ====================================================
-            TOP PLAYER RANK CARD BANNER
+            SECTION 1: HERO IDENTITY
         ==================================================== */}
-        <View style={styles.rankBannerCard}>
-          <View style={styles.rankBannerHeader}>
-            <Text style={styles.rankBannerTitle}>⚔ HERO PROFILE</Text>
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>👤 Hero Identity</Text>
+            
+            {/* EDIT PROFILE BUTTON */}
+            <TouchableOpacity
+              style={styles.editProfileButton}
+              activeOpacity={0.8}
+              onPress={() => router.push("/edit-hero")}
+            >
+              <Text style={styles.editProfileButtonText}>✏️ Edit Profile</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.rankBannerContent}>
-            <View style={styles.rankBannerRow}>
-              <Text style={styles.rankBannerText}>👤 <Text style={styles.rankHighlight}>{hero.heroName}</Text></Text>
-              <Text style={styles.rankBannerText}>🏅 <Text style={styles.rankHighlight}>{heroTitle}</Text></Text>
+
+          <View style={styles.heroIdentityBody}>
+            <View style={styles.avatarContainer}>
+              <AvatarImage avatarUrl={hero.avatarUrl} equippedAvatar={hero.equippedAvatar} size={84} />
             </View>
-            <View style={styles.rankBannerRow}>
-              <Text style={styles.rankBannerText}>⭐ Level <Text style={styles.rankHighlight}>{hero.level}</Text></Text>
-              <Text style={styles.rankBannerText}>🏆 Global Rank <Text style={styles.rankHighlight}>#{globalRank}</Text></Text>
-            </View>
-            <View style={styles.rankBannerRow}>
-              <Text style={styles.rankBannerText}>🔥 <Text style={styles.rankHighlight}>{hero.currentStreak} Day Streak</Text></Text>
-              <Text style={styles.rankBannerText}>⚡ <Text style={styles.rankHighlight}>{hero.totalXP} XP</Text></Text>
+
+            <View style={styles.identityDetails}>
+              <Text style={styles.heroNameText}>{hero.heroName}</Text>
+              <View style={styles.titlePill}>
+                <Text style={styles.titlePillText}>👑 {heroTitle}</Text>
+              </View>
+              <Text style={styles.identitySubText}>⚔ Class: <Text style={styles.whiteHighlight}>{hero.class}</Text></Text>
+              <Text style={styles.identitySubText}>📅 Join Date: <Text style={styles.whiteHighlight}>{accountCreatedStr}</Text></Text>
             </View>
           </View>
         </View>
 
         {/* ====================================================
-            1. HERO CARD
+            SECTION 2: HERO PROGRESS
         ==================================================== */}
         <View style={styles.sectionCard}>
-          <View style={styles.heroCardTop}>
-            <View style={styles.avatarBox}>
-              <AvatarImage avatarUrl={hero.avatarUrl} equippedAvatar={hero.equippedAvatar} size={80} />
-            </View>
+          <Text style={styles.sectionTitle}>📈 Hero Progress</Text>
 
-            <View style={styles.heroInfoBox}>
-              <Text style={styles.heroUsername}>{hero.heroName}</Text>
-              <View style={styles.titleTag}>
-                <Text style={styles.titleTagText}>👑 {heroTitle}</Text>
-              </View>
-              <Text style={styles.heroClassSub}>Level {hero.level} {hero.class}</Text>
-            </View>
-          </View>
-
-          {/* XP Progress Bar */}
-          <View style={styles.xpBox}>
-            <View style={styles.xpLabelRow}>
-              <Text style={styles.xpLabel}>Current XP</Text>
-              <Text style={styles.xpVal}>{currentXP} / {xpNeeded} XP ({xpPct}%)</Text>
+          {/* Level & XP Progress Bar */}
+          <View style={styles.xpCard}>
+            <View style={styles.xpHeaderRow}>
+              <Text style={styles.levelBadge}>Level {hero.level}</Text>
+              <Text style={styles.xpText}>{currentXP} / {xpNeeded} XP ({xpPct}%)</Text>
             </View>
             <View style={styles.xpTrack}>
               <View style={[styles.xpFill, { width: `${xpPct}%` }]} />
             </View>
           </View>
 
-          {/* Coins & Streak Stats */}
-          <View style={styles.heroStatsRow}>
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatIcon}>🪙</Text>
-              <Text style={styles.heroStatNum}>{hero.coins}</Text>
-              <Text style={styles.heroStatLabel}>Coins</Text>
-            </View>
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatIcon}>🔥</Text>
-              <Text style={styles.heroStatNum}>{hero.currentStreak} Days</Text>
-              <Text style={styles.heroStatLabel}>Current Streak</Text>
-            </View>
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatIcon}>🏆</Text>
-              <Text style={styles.heroStatNum}>{hero.longestStreak} Days</Text>
-              <Text style={styles.heroStatLabel}>Longest Streak</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ====================================================
-            2. CHARACTER STATS (AUTO-UPDATED FROM EQUIPPED GEAR)
-        ==================================================== */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>⚔ Character Stats</Text>
-          <Text style={styles.sectionSub}>Calculated live from your equipped equipment</Text>
-
-          <View style={styles.statsStripGrid}>
-            <View style={styles.statBox}>
-              <Text style={styles.statIcon}>⚔</Text>
-              <Text style={styles.statVal}>{charStats.attack}</Text>
-              <Text style={styles.statName}>Attack</Text>
-            </View>
-
-            <View style={styles.statBox}>
-              <Text style={styles.statIcon}>🛡</Text>
-              <Text style={styles.statVal}>{charStats.defense}</Text>
-              <Text style={styles.statName}>Defense</Text>
-            </View>
-
-            <View style={styles.statBox}>
-              <Text style={styles.statIcon}>🧠</Text>
-              <Text style={styles.statVal}>{charStats.intelligence}</Text>
-              <Text style={styles.statName}>Intelligence</Text>
-            </View>
-
-            <View style={styles.statBox}>
-              <Text style={styles.statIcon}>❤️</Text>
-              <Text style={styles.statVal}>{charStats.vitality}</Text>
-              <Text style={styles.statName}>Vitality</Text>
-            </View>
-
+          {/* Progress Grid */}
+          <View style={styles.statsGrid}>
             <View style={styles.statBox}>
               <Text style={styles.statIcon}>⚡</Text>
-              <Text style={styles.statVal}>{charStats.speed}</Text>
-              <Text style={styles.statName}>Speed</Text>
+              <Text style={styles.statVal}>{hero.totalXP}</Text>
+              <Text style={styles.statLabel}>Total XP</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🪙</Text>
+              <Text style={styles.statVal}>{hero.coins}</Text>
+              <Text style={styles.statLabel}>Coins</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🔥</Text>
+              <Text style={styles.statVal}>{hero.currentStreak}d</Text>
+              <Text style={styles.statLabel}>Current Streak</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🏆</Text>
+              <Text style={styles.statVal}>{hero.longestStreak}d</Text>
+              <Text style={styles.statLabel}>Longest Streak</Text>
+            </View>
+
+            <View style={[styles.statBox, { width: "100%" }]}>
+              <Text style={styles.statIcon}>🏅</Text>
+              <Text style={styles.statVal}>#{globalRank}</Text>
+              <Text style={styles.statLabel}>Global Rank</Text>
             </View>
           </View>
         </View>
 
         {/* ====================================================
-            3. EQUIPMENT (SHOWS ITEM ICON, RARITY & STATS)
+            SECTION 3: LIFETIME STATISTICS
         ==================================================== */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>🛡 Equipment Loadout</Text>
+          <Text style={styles.sectionTitle}>📊 Lifetime Statistics</Text>
 
-          <View style={styles.equipmentGrid}>
-            {(["weapon", "armor", "helmet", "shield", "boots", "accessory"] as const).map((slotKey) => {
+          <View style={styles.statsGrid}>
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>📜</Text>
+              <Text style={styles.statVal}>{stats.totalQuestsCompleted}</Text>
+              <Text style={styles.statLabel}>Total Quests</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>☀️</Text>
+              <Text style={styles.statVal}>{stats.dailyQuestsCompleted}</Text>
+              <Text style={styles.statLabel}>Daily Quests</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🎯</Text>
+              <Text style={styles.statVal}>{stats.customQuestsCompleted}</Text>
+              <Text style={styles.statLabel}>Custom Quests</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🐉</Text>
+              <Text style={styles.statVal}>{stats.bossesDefeated}</Text>
+              <Text style={styles.statLabel}>Bosses Defeated</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🎖️</Text>
+              <Text style={styles.statVal}>{hero.unlockedAchievements.length}</Text>
+              <Text style={styles.statLabel}>Achievements</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statIcon}>🎒</Text>
+              <Text style={styles.statVal}>{stats.inventoryCount}</Text>
+              <Text style={styles.statLabel}>Inventory Items</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ====================================================
+            SECTION 4: EQUIPPED GEAR
+        ==================================================== */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>🛡️ Equipped Gear</Text>
+
+          <View style={styles.gearGrid}>
+            {(["weapon", "helmet", "armor", "shield", "boots", "accessory"] as const).map((slotKey) => {
               const item = equippedGear[slotKey];
               const rarityColor = getRarityColorHex(item?.rarity);
 
               return (
-                <View key={slotKey} style={[styles.equipCard, { borderColor: rarityColor }]}>
-                  <Text style={styles.equipSlotLabel}>{slotKey.toUpperCase()}</Text>
-                  <Text style={styles.equipIcon}>{item?.icon || "📦"}</Text>
-                  <Text style={styles.equipName} numberOfLines={1}>{item?.name || "Empty Slot"}</Text>
+                <View key={slotKey} style={[styles.gearCard, { borderColor: rarityColor }]}>
+                  <Text style={styles.gearSlotLabel}>{slotKey.toUpperCase()}</Text>
+                  <Text style={styles.gearIcon}>{item?.icon || "📦"}</Text>
+                  <Text style={styles.gearName} numberOfLines={1}>{item?.name || "Empty Slot"}</Text>
 
                   {item ? (
-                    <>
-                      <View style={[styles.rarityPill, { backgroundColor: rarityColor }]}>
-                        <Text style={styles.rarityPillText}>{item.rarity.toUpperCase()}</Text>
-                      </View>
-                      <Text style={styles.equipStatSub}>
-                        {item.attack ? `⚔+${item.attack} ` : ""}
-                        {item.defense ? `🛡+${item.defense} ` : ""}
-                        {item.vitality ? `❤️+${item.vitality}` : ""}
-                      </Text>
-                    </>
+                    <View style={[styles.rarityPill, { backgroundColor: rarityColor }]}>
+                      <Text style={styles.rarityPillText}>{item.rarity.toUpperCase()}</Text>
+                    </View>
                   ) : (
-                    <Text style={styles.equipEmptyText}>Unequipped</Text>
+                    <Text style={styles.gearEmptyText}>Unequipped</Text>
                   )}
                 </View>
               );
@@ -488,76 +467,15 @@ export default function HeroProfileDashboardScreen() {
         </View>
 
         {/* ====================================================
-            4. PROGRESSION (ANIMATED PROGRESS BARS)
+            SECTION 5: RECENT ACTIVITY (LAST 5 COMPLETED QUESTS)
         ==================================================== */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>📊 Progression Milestones</Text>
+          <Text style={styles.sectionTitle}>⏱ Recent Activity (Last 5 Completed Quests)</Text>
 
-          {/* Total Quests */}
-          <View style={styles.progRow}>
-            <View style={styles.progHeader}>
-              <Text style={styles.progTitle}>📜 Total Quests Completed</Text>
-              <Text style={styles.progVal}>{progression.totalQuestsCompleted} / 50 ({questPct}%)</Text>
-            </View>
-            <View style={styles.progTrack}><View style={[styles.progFill, { width: `${questPct}%`, backgroundColor: "#7C3AED" }]} /></View>
-          </View>
-
-          {/* Daily Quests */}
-          <View style={styles.progRow}>
-            <View style={styles.progHeader}>
-              <Text style={styles.progTitle}>☀️ Daily Quests</Text>
-              <Text style={styles.progVal}>{progression.dailyQuestsCompleted} / 20 ({dailyPct}%)</Text>
-            </View>
-            <View style={styles.progTrack}><View style={[styles.progFill, { width: `${dailyPct}%`, backgroundColor: "#3B82F6" }]} /></View>
-          </View>
-
-          {/* Custom Quests */}
-          <View style={styles.progRow}>
-            <View style={styles.progHeader}>
-              <Text style={styles.progTitle}>🎯 Custom Quests</Text>
-              <Text style={styles.progVal}>{progression.customQuestsCompleted} / 10 ({customPct}%)</Text>
-            </View>
-            <View style={styles.progTrack}><View style={[styles.progFill, { width: `${customPct}%`, backgroundColor: "#10B981" }]} /></View>
-          </View>
-
-          {/* Bosses Defeated */}
-          <View style={styles.progRow}>
-            <View style={styles.progHeader}>
-              <Text style={styles.progTitle}>🐉 Bosses Defeated</Text>
-              <Text style={styles.progVal}>{progression.bossesDefeated} / 5 ({bossPct}%)</Text>
-            </View>
-            <View style={styles.progTrack}><View style={[styles.progFill, { width: `${bossPct}%`, backgroundColor: "#EF4444" }]} /></View>
-          </View>
-
-          {/* Achievements Unlocked */}
-          <View style={styles.progRow}>
-            <View style={styles.progHeader}>
-              <Text style={styles.progTitle}>🎖️ Achievements Unlocked</Text>
-              <Text style={styles.progVal}>{hero.unlockedAchievements.length} / 12 ({achPct}%)</Text>
-            </View>
-            <View style={styles.progTrack}><View style={[styles.progFill, { width: `${achPct}%`, backgroundColor: "#F59E0B" }]} /></View>
-          </View>
-
-          {/* Inventory Completion */}
-          <View style={styles.progRow}>
-            <View style={styles.progHeader}>
-              <Text style={styles.progTitle}>🎒 Inventory Completion</Text>
-              <Text style={styles.progVal}>{progression.inventoryItemCount} / 30 ({invPct}%)</Text>
-            </View>
-            <View style={styles.progTrack}><View style={[styles.progFill, { width: `${invPct}%`, backgroundColor: "#8B5CF6" }]} /></View>
-          </View>
-        </View>
-
-        {/* ====================================================
-            5. RECENT ACTIVITY (LATEST 10 ACTIVITIES)
-        ==================================================== */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>⏱ Recent Activity (Latest 10)</Text>
-
-          {activities.length === 0 ? (
+          {recentActivities.length === 0 ? (
             <Text style={styles.emptyText}>No recent activity logged yet.</Text>
           ) : (
-            activities.map((act) => (
+            recentActivities.map((act) => (
               <View key={act.id} style={styles.actRow}>
                 <Text style={styles.actIcon}>{act.icon}</Text>
                 <View style={{ flex: 1 }}>
@@ -571,124 +489,27 @@ export default function HeroProfileDashboardScreen() {
         </View>
 
         {/* ====================================================
-            6. BADGES (ALL SYSTEM BADGES, GREYED OUT IF LOCKED)
+            SECTION 6: RECENT ACHIEVEMENTS (LAST 3 UNLOCKED)
         ==================================================== */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>🏅 Earned Badges</Text>
+          <Text style={styles.sectionTitle}>🏅 Recent Achievements (Last 3 Unlocked)</Text>
 
-          <View style={styles.badgesGrid}>
-            {ALL_BADGES.map((badge) => {
-              const isUnlocked = hero.unlockedAchievements.includes(badge.id);
-
-              return (
-                <View
-                  key={badge.id}
-                  style={[
-                    styles.badgeCard,
-                    !isUnlocked && styles.badgeLocked,
-                  ]}
-                >
-                  <Text style={styles.badgeIcon}>{badge.icon}</Text>
-                  <Text style={styles.badgeTitle} numberOfLines={1}>{badge.title}</Text>
-                  <Text style={isUnlocked ? styles.badgeStatusUnlocked : styles.badgeStatusLocked}>
-                    {isUnlocked ? "UNLOCKED" : "LOCKED"}
-                  </Text>
+          <View style={styles.recentAchievementsList}>
+            {recent3Achievements.map((ach) => (
+              <View key={ach.id} style={styles.achievementCard}>
+                <Text style={styles.achievementIcon}>{ach.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.achievementTitle}>{ach.title}</Text>
+                  <Text style={styles.achievementSub}>{ach.description}</Text>
                 </View>
-              );
-            })}
+                <View style={styles.unlockedPill}>
+                  <Text style={styles.unlockedPillText}>UNLOCKED</Text>
+                </View>
+              </View>
+            ))}
           </View>
         </View>
 
-        {/* ====================================================
-            7. ADVENTURE PROGRESS
-        ==================================================== */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>🗺 Adventure Progress</Text>
-
-          <View style={styles.advInfoRow}>
-            <Text style={styles.advLabel}>Current Region:</Text>
-            <Text style={styles.advVal}>Valoria Realm</Text>
-          </View>
-
-          <View style={styles.advInfoRow}>
-            <Text style={styles.advLabel}>Current Chapter:</Text>
-            <Text style={styles.advVal}>Chapter {Math.min(5, Math.ceil(hero.level / 4))} - Shadow Citadel</Text>
-          </View>
-
-          <View style={styles.advInfoRow}>
-            <Text style={styles.advLabel}>Current Mission:</Text>
-            <Text style={styles.advVal}>Defeat Realm Boss & Guard Streak</Text>
-          </View>
-
-          <View style={styles.advInfoRow}>
-            <Text style={styles.advLabel}>Next Unlock:</Text>
-            <Text style={styles.advVal}>Level {Math.ceil(hero.level / 4) * 4 + 1} Portal Gate</Text>
-          </View>
-        </View>
-
-        {/* ====================================================
-            8. PLAYER SUMMARY
-        ==================================================== */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>📜 Player Account Summary</Text>
-
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Account Created</Text>
-              <Text style={styles.summaryVal}>{accountCreatedStr}</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Days Active</Text>
-              <Text style={styles.summaryVal}>{daysActive} Days</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total XP Earned</Text>
-              <Text style={styles.summaryVal}>{hero.totalXP} XP</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Coins Earned</Text>
-              <Text style={styles.summaryVal}>{hero.coins} Coins</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Highest Level</Text>
-              <Text style={styles.summaryVal}>Level {hero.level}</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Inventory Items</Text>
-              <Text style={styles.summaryVal}>{progression.inventoryItemCount} Items</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ====================================================
-            9. QUICK ACTIONS (BUTTONS)
-        ==================================================== */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>⚡ Quick Actions</Text>
-
-          <View style={styles.quickActionsGrid}>
-            <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/inventory" as any)}>
-              <Text style={styles.actionBtnText}>🎒 Go to Inventory</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/quests" as any)}>
-              <Text style={styles.actionBtnText}>📜 Go to Quests</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/leaderboard" as any)}>
-              <Text style={styles.actionBtnText}>🏆 Go to Leaderboard</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/achievements" as any)}>
-              <Text style={styles.actionBtnText}>🎖️ Go to Achievements</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </ScrollView>
     </View>
   );
@@ -699,10 +520,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: RPGTheme.colors.bg,
   },
-  container: {
-    padding: 16,
-    paddingBottom: 40,
-  },
   loadingScreen: {
     flex: 1,
     backgroundColor: RPGTheme.colors.bg,
@@ -710,236 +527,198 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   loadingText: {
-    color: RPGTheme.colors.textPrimary,
-    marginTop: 12,
+    color: RPGTheme.colors.textMuted,
     fontSize: 14,
-    fontWeight: "700",
+    marginTop: 12,
   },
   errorEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: 40,
+    marginBottom: 10,
   },
   errorTitle: {
     color: RPGTheme.colors.textPrimary,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-
-  // RANK BANNER CARD
-  rankBannerCard: {
-    backgroundColor: RPGTheme.colors.primaryCard,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: "#F59E0B",
-    marginBottom: 16,
-  },
-  rankBannerHeader: {
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(245, 158, 11, 0.3)",
-    paddingBottom: 8,
-    marginBottom: 10,
-    alignItems: "center",
-  },
-  rankBannerTitle: {
-    color: "#F59E0B",
     fontSize: 16,
-    fontWeight: "900",
-    letterSpacing: 1.5,
+    fontWeight: "800",
   },
-  rankBannerContent: {
-    gap: 8,
+  container: {
+    padding: 16,
+    paddingBottom: 40,
   },
-  rankBannerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  rankBannerText: {
-    color: RPGTheme.colors.textSecondary,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  rankHighlight: {
-    color: RPGTheme.colors.textPrimary,
-    fontWeight: "900",
-  },
-
-  // SECTION CARD
   sectionCard: {
     backgroundColor: RPGTheme.colors.primaryCard,
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.15)",
+    borderColor: RPGTheme.colors.cardBorder,
+    padding: 16,
     marginBottom: 16,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
   },
   sectionTitle: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 16,
     fontWeight: "900",
-    marginBottom: 4,
-  },
-  sectionSub: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 11,
     marginBottom: 12,
   },
-
-  // HERO CARD
-  heroCardTop: {
-    flexDirection: "row",
-    gap: 14,
-    alignItems: "center",
-    marginBottom: 14,
+  editProfileButton: {
+    backgroundColor: "rgba(124, 58, 237, 0.3)",
+    borderColor: "#7C3AED",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  avatarBox: {
-    position: "relative",
-  },
-  heroInfoBox: {
-    flex: 1,
-  },
-  heroUsername: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 18,
+  editProfileButtonText: {
+    color: "#A78BFA",
+    fontSize: 11,
     fontWeight: "900",
   },
-  titleTag: {
+  heroIdentityBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  avatarContainer: {
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  identityDetails: {
+    flex: 1,
+  },
+  heroNameText: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  titlePill: {
     backgroundColor: "rgba(245, 158, 11, 0.15)",
     borderColor: "#F59E0B",
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: 8,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     alignSelf: "flex-start",
-    marginTop: 4,
-    marginBottom: 4,
+    marginVertical: 4,
   },
-  titleTagText: {
+  titlePillText: {
     color: "#F59E0B",
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "900",
   },
-  heroClassSub: {
+  identitySubText: {
     color: RPGTheme.colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: "700",
   },
-  xpBox: {
-    marginBottom: 12,
+  whiteHighlight: {
+    color: RPGTheme.colors.textPrimary,
+    fontWeight: "800",
   },
-  xpLabelRow: {
+  xpCard: {
+    marginBottom: 14,
+  },
+  xpHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 4,
+    alignItems: "center",
+    marginBottom: 6,
   },
-  xpLabel: {
-    color: RPGTheme.colors.textSecondary,
+  levelBadge: {
+    color: RPGTheme.colors.purplePrimary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  xpText: {
+    color: RPGTheme.colors.textMuted,
     fontSize: 11,
     fontWeight: "800",
   },
-  xpVal: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 10,
-  },
   xpTrack: {
     height: 10,
-    backgroundColor: "rgba(148, 163, 184, 0.2)",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
     borderRadius: 5,
     overflow: "hidden",
   },
   xpFill: {
     height: "100%",
-    backgroundColor: "#7C3AED",
+    backgroundColor: RPGTheme.colors.purplePrimary,
     borderRadius: 5,
   },
-  heroStatsRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "rgba(30, 41, 59, 0.6)",
-    borderRadius: 12,
-    padding: 10,
-  },
-  heroStatItem: {
-    alignItems: "center",
-  },
-  heroStatIcon: {
-    fontSize: 18,
-  },
-  heroStatNum: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 13,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  heroStatLabel: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 9,
-  },
-
-  // STATS GRID
-  statsStripGrid: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
-  statBox: {
-    width: "18%",
-    backgroundColor: "rgba(30, 41, 59, 0.7)",
-    borderRadius: 12,
-    padding: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.15)",
-  },
-  statIcon: {
-    fontSize: 18,
-    marginBottom: 2,
-  },
-  statVal: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  statName: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 9,
-    marginTop: 2,
-  },
-
-  // EQUIPMENT GRID
-  equipmentGrid: {
+  statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    marginTop: 8,
   },
-  equipCard: {
+  statBox: {
     width: "48%",
-    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: RPGTheme.colors.cardBorder,
+    padding: 12,
+    alignItems: "center",
+  },
+  statIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  statVal: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  statLabel: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+    textAlign: "center",
+  },
+  gearGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  gearCard: {
+    width: "31%",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderRadius: 12,
+    borderWidth: 1.5,
     padding: 10,
     alignItems: "center",
-    borderWidth: 1.5,
   },
-  equipSlotLabel: {
+  gearSlotLabel: {
     color: RPGTheme.colors.textMuted,
     fontSize: 9,
     fontWeight: "900",
+    letterSpacing: 0.5,
     marginBottom: 4,
   },
-  equipIcon: {
-    fontSize: 26,
-    marginBottom: 4,
+  gearIcon: {
+    fontSize: 24,
+    marginVertical: 4,
   },
-  equipName: {
+  gearName: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 11,
     fontWeight: "800",
     textAlign: "center",
   },
+  gearEmptyText: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 9,
+    fontStyle: "italic",
+    marginTop: 4,
+  },
   rarityPill: {
-    borderRadius: 4,
+    borderRadius: 6,
     paddingHorizontal: 6,
-    paddingVertical: 1,
+    paddingVertical: 2,
     marginTop: 4,
   },
   rarityPillText: {
@@ -947,56 +726,53 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "900",
   },
-  equipStatSub: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 9,
-    marginTop: 4,
+  recentAchievementsList: {
+    gap: 10,
   },
-  equipEmptyText: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 10,
-    fontStyle: "italic",
-    marginTop: 4,
-  },
-
-  // PROGRESSION
-  progRow: {
-    marginBottom: 10,
-  },
-  progHeader: {
+  achievementCard: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 4,
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: RPGTheme.colors.cardBorder,
+    padding: 10,
+    gap: 12,
   },
-  progTitle: {
-    color: RPGTheme.colors.textSecondary,
-    fontSize: 11,
+  achievementIcon: {
+    fontSize: 24,
+  },
+  achievementTitle: {
+    color: RPGTheme.colors.textPrimary,
+    fontSize: 13,
     fontWeight: "800",
   },
-  progVal: {
+  achievementSub: {
     color: RPGTheme.colors.textMuted,
     fontSize: 10,
+    fontWeight: "700",
   },
-  progTrack: {
-    height: 8,
-    backgroundColor: "rgba(148, 163, 184, 0.2)",
-    borderRadius: 4,
-    overflow: "hidden",
+  unlockedPill: {
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderColor: "#10B981",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  progFill: {
-    height: "100%",
-    borderRadius: 4,
+  unlockedPillText: {
+    color: "#10B981",
+    fontSize: 9,
+    fontWeight: "900",
   },
-
-  // RECENT ACTIVITY
   actRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    backgroundColor: "rgba(30, 41, 59, 0.5)",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
     borderRadius: 10,
     padding: 10,
-    marginBottom: 6,
+    gap: 10,
+    marginBottom: 8,
   },
   actIcon: {
     fontSize: 18,
@@ -1007,120 +783,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   actDetail: {
-    color: "#22C55E",
+    color: "#10B981",
     fontSize: 10,
     fontWeight: "700",
   },
   actTime: {
     color: RPGTheme.colors.textMuted,
     fontSize: 10,
-  },
-
-  // BADGES
-  badgesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 8,
-  },
-  badgeCard: {
-    width: "23%",
-    backgroundColor: "rgba(30, 41, 59, 0.8)",
-    borderRadius: 12,
-    padding: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-  },
-  badgeLocked: {
-    opacity: 0.35,
-    borderColor: "rgba(148, 163, 184, 0.2)",
-  },
-  badgeIcon: {
-    fontSize: 22,
-    marginBottom: 4,
-  },
-  badgeTitle: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 9,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  badgeStatusUnlocked: {
-    color: "#F59E0B",
-    fontSize: 7,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  badgeStatusLocked: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 7,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-
-  // ADVENTURE PROGRESS
-  advInfoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148, 163, 184, 0.1)",
-  },
-  advLabel: {
-    color: RPGTheme.colors.textSecondary,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  advVal: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-
-  // PLAYER SUMMARY
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 8,
-  },
-  summaryItem: {
-    width: "48%",
-    backgroundColor: "rgba(30, 41, 59, 0.7)",
-    borderRadius: 10,
-    padding: 10,
-  },
-  summaryLabel: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  summaryVal: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 12,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-
-  // QUICK ACTIONS
-  quickActionsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 8,
-  },
-  actionBtn: {
-    width: "48%",
-    backgroundColor: RPGTheme.colors.purplePrimary,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  actionBtnText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "900",
   },
   emptyText: {
     color: RPGTheme.colors.textMuted,

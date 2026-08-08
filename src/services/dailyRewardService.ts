@@ -2,6 +2,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { InventoryItem, InventoryService } from "./inventoryService";
 import { LevelService } from "./levelService";
+import NotificationService from "./notificationService";
 
 export interface DailyRewardItem {
   day: number;
@@ -190,6 +191,13 @@ export class DailyRewardService {
 
     // Persist updates in Firestore
     await updateDoc(userRef, updates);
+
+    // Record Daily Reward Notification
+    NotificationService.addNotification(uid, {
+      type: "daily_reward",
+      title: "Daily Reward Claimed! 🎁",
+      message: `Claimed Day ${rewardConfig.day} reward: ${rewardConfig.title}!`,
+    }).catch((e) => console.error("Notification error:", e));
 
     return rewardConfig;
   }

@@ -164,7 +164,7 @@ export default function CharacterScreen() {
       }));
     });
 
-    const customRef = collection(db, "users", uid, "customQuests");
+    const customRef = collection(db, "users", uid, "quests");
     const unsubCustom = onSnapshot(customRef, (snap) => {
       setDetailedStats((prev) => ({
         ...prev,

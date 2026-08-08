@@ -1,14 +1,14 @@
 import RPGHeader from "@/components/RPGHeader";
 import { auth, db } from "@/lib/firebase";
 import BossService, { BossData, RPG_BOSSES } from "@/services/bossService";
+import InventoryService from "@/services/inventoryService";
 import { RPGTheme } from "@/utils/rpgTheme";
 import { router } from "expo-router";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Dimensions,
   Modal,
   ScrollView,
   StyleSheet,
@@ -16,6 +16,18 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+type PotionItem = {
+  id: string;
+  name: string;
+};
+
+type RandomLoot = {
+  name: string;
+  icon: string;
+  bonusCoins: number;
+  bonusXP: number;
+};
 
 export default function BossBattleScreen() {
   const [loading, setLoading] = useState(true);
@@ -28,6 +40,7 @@ export default function BossBattleScreen() {
     vitality: 10,
   });
   const [bossesDefeated, setBossesDefeated] = useState<Record<string, boolean>>({});
+  const [potionsList, setPotionsList] = useState<PotionItem[]>([]);
 
   // Active battle state
   const [activeBoss, setActiveBoss] = useState<BossData | null>(null);
@@ -38,6 +51,7 @@ export default function BossBattleScreen() {
   const [turnLog, setTurnLog] = useState<string[]>([]);
   const [battleState, setBattleState] = useState<"idle" | "fighting" | "victory" | "defeat">("idle");
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
+  const [victoryLoot, setVictoryLoot] = useState<RandomLoot | null>(null);
 
   // Animations
   const playerAnim = useRef(new Animated.Value(0)).current;
@@ -53,7 +67,7 @@ export default function BossBattleScreen() {
       return;
     }
 
-    // Subscribe to users/{uid} for level & bossesDefeated
+    // 1. Subscribe to users/{uid} for level & bossesDefeated
     const userRef = doc(db, "users", uid);
     const unsubUser = onSnapshot(userRef, (snap) => {
       if (snap.exists()) {
@@ -63,12 +77,13 @@ export default function BossBattleScreen() {
       }
     });
 
-    // Subscribe to users/{uid}/inventory for equipped character stats
+    // 2. Subscribe to users/{uid}/inventory for equipped stats and health potions
     const inventoryRef = collection(db, "users", uid, "inventory");
     const unsubInventory = onSnapshot(inventoryRef, (snapshot) => {
       let atk = 20;
       let def = 10;
       let vit = 10;
+      const potions: PotionItem[] = [];
 
       snapshot.docs.forEach((docSnap) => {
         const data = docSnap.data();
@@ -77,9 +92,20 @@ export default function BossBattleScreen() {
           def += Number(data.defense ?? 0);
           vit += Number(data.vitality ?? 0);
         }
+
+        const cat = (data.category || "").toLowerCase();
+        const name = (data.name || "").toLowerCase();
+        const docId = docSnap.id.toLowerCase();
+        if (cat === "potions" || cat === "potion" || name.includes("potion") || docId.includes("potion")) {
+          potions.push({
+            id: docSnap.id,
+            name: data.name || "Health Potion",
+          });
+        }
       });
 
       setPlayerStats({ attack: atk, defense: def, vitality: vit });
+      setPotionsList(potions);
       setLoading(false);
     });
 
@@ -91,7 +117,7 @@ export default function BossBattleScreen() {
 
   // Start battle with selected boss
   const startBattle = (boss: BossData) => {
-    const computedMaxPlayerHp = 100 + (playerLevel * 20) + (playerStats.vitality * 10);
+    const computedMaxPlayerHp = 100 + playerLevel * 20 + playerStats.vitality * 10;
     setActiveBoss(boss);
     setPlayerHp(computedMaxPlayerHp);
     setMaxPlayerHp(computedMaxPlayerHp);
@@ -100,6 +126,7 @@ export default function BossBattleScreen() {
     setTurnLog([`⚔️ Battle commenced against ${boss.name}!`]);
     setBattleState("fighting");
     setIsProcessingTurn(false);
+    setVictoryLoot(null);
   };
 
   // Trigger attack animation
@@ -133,60 +160,42 @@ export default function BossBattleScreen() {
     ]).start();
   };
 
-  // Handle Player Action: Attack
+  // 1. ATTACK BUTTON & RANDOM DAMAGE CALCULATION
   const handlePlayerAttack = async () => {
     if (!activeBoss || isProcessingTurn || battleState !== "fighting") return;
     setIsProcessingTurn(true);
 
     triggerAttackAnimation(true);
 
-    // 1. Calculate Player Damage
-    const baseDamage = Math.max(8, (playerStats.attack * 1.4) - (activeBoss.defense * 0.5));
-    const randomFactor = 0.85 + Math.random() * 0.3; // 85% to 115%
-    const playerDamage = Math.round(baseDamage * randomFactor);
+    // Random Damage Calculation with Critical Hit chance (20%)
+    const isCrit = Math.random() < 0.2;
+    const baseDamage = Math.max(8, playerStats.attack * 1.4 - activeBoss.defense * 0.5);
+    const randomFactor = 0.85 + Math.random() * 0.35; // 85% to 120%
+    const rawDamage = baseDamage * randomFactor * (isCrit ? 1.5 : 1.0);
+    const playerDamage = Math.round(rawDamage);
 
     const newBossHp = Math.max(0, bossHp - playerDamage);
     setBossHp(newBossHp);
-    setTurnLog((prev) => [`💥 You hit ${activeBoss.name} for ${playerDamage} damage!`, ...prev]);
+
+    const attackMsg = isCrit
+      ? `⚡ CRITICAL HIT! You slashed ${activeBoss.name} for ${playerDamage} damage!`
+      : `💥 You hit ${activeBoss.name} for ${playerDamage} damage!`;
+    setTurnLog((prev) => [attackMsg, ...prev]);
 
     // Check Victory
     if (newBossHp <= 0) {
-      setBattleState("victory");
-      Animated.spring(victoryScaleAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true,
-      }).start();
-
-      if (uid) {
-        try {
-          await BossService.recordBossVictory(uid, activeBoss.id);
-        } catch (e) {
-          console.error("Error recording boss victory:", e);
-        }
-      }
+      await handleVictory(activeBoss);
       setIsProcessingTurn(false);
       return;
     }
 
-    // 2. Boss Counter-Attack after short delay
+    // 2. BOSS COUNTER ATTACK
     setTimeout(() => {
-      triggerAttackAnimation(false);
-      const bossBaseDamage = Math.max(5, (activeBoss.attack * 1.3) - (playerStats.defense * 0.5));
-      const bossDamage = Math.round(bossBaseDamage * (0.85 + Math.random() * 0.3));
-
-      const newPlayerHp = Math.max(0, playerHp - bossDamage);
-      setPlayerHp(newPlayerHp);
-      setTurnLog((prev) => [`🔥 ${activeBoss.name} attacked you for ${bossDamage} damage!`, ...prev]);
-
-      if (newPlayerHp <= 0) {
-        setBattleState("defeat");
-      }
-      setIsProcessingTurn(false);
+      triggerBossCounterAttack(activeBoss, playerHp);
     }, 600);
   };
 
-  // Handle Player Action: Defend
+  // DEFEND ACTION
   const handlePlayerDefend = () => {
     if (!activeBoss || isProcessingTurn || battleState !== "fighting") return;
     setIsProcessingTurn(true);
@@ -195,12 +204,15 @@ export default function BossBattleScreen() {
 
     setTimeout(() => {
       triggerAttackAnimation(false);
-      const bossBaseDamage = Math.max(5, (activeBoss.attack * 1.3) - (playerStats.defense * 0.5));
-      const bossDamage = Math.round(bossBaseDamage * 0.5); // 50% reduced damage
+      const bossBaseDamage = Math.max(5, activeBoss.attack * 1.3 - playerStats.defense * 0.5);
+      const bossDamage = Math.round(bossBaseDamage * 0.45); // 55% damage reduction
 
       const newPlayerHp = Math.max(0, playerHp - bossDamage);
       setPlayerHp(newPlayerHp);
-      setTurnLog((prev) => [`🔥 ${activeBoss.name} attacked! You blocked and took only ${bossDamage} damage.`, ...prev]);
+      setTurnLog((prev) => [
+        `🔥 ${activeBoss.name} attacked! You blocked and took only ${bossDamage} damage.`,
+        ...prev,
+      ]);
 
       if (newPlayerHp <= 0) {
         setBattleState("defeat");
@@ -209,30 +221,121 @@ export default function BossBattleScreen() {
     }, 500);
   };
 
-  // Handle Player Action: Heal Potion
-  const handlePlayerHeal = () => {
+  // 3. POTION USAGE FROM INVENTORY
+  const handlePlayerHeal = async () => {
     if (!activeBoss || isProcessingTurn || battleState !== "fighting") return;
     setIsProcessingTurn(true);
 
-    const healAmount = Math.round(maxPlayerHp * 0.35);
+    if (potionsList.length === 0) {
+      setTurnLog((prev) => [`⚠️ No Health Potions in inventory! Buy potions in Shop.`, ...prev]);
+      setIsProcessingTurn(false);
+      return;
+    }
+
+    // Consume 1 potion doc from inventory in Firestore
+    const targetPotion = potionsList[0];
+    if (uid) {
+      try {
+        await deleteDoc(doc(db, "users", uid, "inventory", targetPotion.id));
+      } catch (e) {
+        console.error("Error consuming potion from inventory:", e);
+      }
+    }
+
+    const healAmount = Math.round(maxPlayerHp * 0.4);
     const newPlayerHp = Math.min(maxPlayerHp, playerHp + healAmount);
     setPlayerHp(newPlayerHp);
-    setTurnLog((prev) => [`🧪 You drank a Health Potion and recovered +${healAmount} HP!`, ...prev]);
+    const remainingCount = Math.max(0, potionsList.length - 1);
+    setTurnLog((prev) => [
+      `🧪 Drank ${targetPotion.name}! Recovered +${healAmount} HP (${remainingCount} Potion(s) left)`,
+      ...prev,
+    ]);
 
+    // Boss counter attack after healing
     setTimeout(() => {
-      triggerAttackAnimation(false);
-      const bossBaseDamage = Math.max(5, (activeBoss.attack * 1.3) - (playerStats.defense * 0.5));
-      const bossDamage = Math.round(bossBaseDamage * (0.85 + Math.random() * 0.3));
-
-      const updatedPlayerHp = Math.max(0, newPlayerHp - bossDamage);
-      setPlayerHp(updatedPlayerHp);
-      setTurnLog((prev) => [`🔥 ${activeBoss.name} strikes for ${bossDamage} damage!`, ...prev]);
-
-      if (updatedPlayerHp <= 0) {
-        setBattleState("defeat");
-      }
-      setIsProcessingTurn(false);
+      triggerBossCounterAttack(activeBoss, newPlayerHp);
     }, 500);
+  };
+
+  // BOSS COUNTER ATTACK HELPER
+  const triggerBossCounterAttack = (boss: BossData, currentHeroHp: number) => {
+    triggerAttackAnimation(false);
+    const bossBaseDamage = Math.max(5, boss.attack * 1.3 - playerStats.defense * 0.5);
+    const bossDamage = Math.round(bossBaseDamage * (0.85 + Math.random() * 0.3));
+
+    const updatedPlayerHp = Math.max(0, currentHeroHp - bossDamage);
+    setPlayerHp(updatedPlayerHp);
+    setTurnLog((prev) => [`🔥 ${boss.name} counter-attacked for ${bossDamage} damage!`, ...prev]);
+
+    if (updatedPlayerHp <= 0) {
+      setBattleState("defeat");
+    }
+    setIsProcessingTurn(false);
+  };
+
+  // 4. VICTORY HANDLER (RANDOM LOOT & FIRESTORE SAVE)
+  const handleVictory = async (boss: BossData) => {
+    setBattleState("victory");
+    Animated.spring(victoryScaleAnim, {
+      toValue: 1,
+      friction: 6,
+      useNativeDriver: true,
+    }).start();
+
+    // Random Loot Rewards Calculation
+    const bonusCoins = Math.floor(boss.rewardCoins * (0.2 + Math.random() * 0.4));
+    const bonusXP = Math.floor(boss.rewardXP * (0.15 + Math.random() * 0.3));
+
+    const lootOptions = [
+      { name: "Elixir of Life", icon: "🧪" },
+      { name: "Boss Essence Crystal", icon: "💎" },
+      { name: "Ancient Relic Gem", icon: "🔮" },
+    ];
+    const pickedLoot = lootOptions[Math.floor(Math.random() * lootOptions.length)];
+
+    const lootReward: RandomLoot = {
+      name: pickedLoot.name,
+      icon: pickedLoot.icon,
+      bonusCoins,
+      bonusXP,
+    };
+    setVictoryLoot(lootReward);
+
+    if (uid) {
+      try {
+        // Save boss victory to users/{uid} & unlock primary reward item
+        await BossService.recordBossVictory(uid, boss.id);
+
+        // Unlock random bonus loot item to inventory
+        await InventoryService.unlockItem(uid, {
+          id: `loot_${boss.id}_${Date.now()}`,
+          name: pickedLoot.name,
+          category: "potions",
+          rarity: "Epic",
+          icon: pickedLoot.icon,
+          description: `Random bonus loot won from defeating ${boss.name}.`,
+          attack: 0,
+          defense: 0,
+          intelligence: 5,
+          vitality: 10,
+          speed: 0,
+          equipped: false,
+        });
+
+        // Record victory subcollection document in users/{uid}/bossVictories/{bossId}
+        await setDoc(doc(db, "users", uid, "bossVictories", boss.id), {
+          bossId: boss.id,
+          bossName: boss.name,
+          defeatedAt: serverTimestamp(),
+          rewardXP: boss.rewardXP + bonusXP,
+          rewardCoins: boss.rewardCoins + bonusCoins,
+          rewardItem: boss.rewardItem.name,
+          bonusLoot: pickedLoot.name,
+        }, { merge: true });
+      } catch (e) {
+        console.error("Error processing victory records:", e);
+      }
+    }
   };
 
   if (loading) {
@@ -403,11 +506,13 @@ export default function BossBattleScreen() {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.actionBtn, styles.healBtn]}
+                    style={[styles.actionBtn, styles.healBtn, potionsList.length === 0 && styles.healBtnDisabled]}
                     disabled={isProcessingTurn}
                     onPress={handlePlayerHeal}
                   >
-                    <Text style={styles.actionBtnText}>🧪 Heal</Text>
+                    <Text style={styles.actionBtnText}>
+                      🧪 Heal ({potionsList.length})
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -419,7 +524,7 @@ export default function BossBattleScreen() {
                 ))}
               </ScrollView>
 
-              {/* VICTORY MODAL OVERLAY */}
+              {/* VICTORY POPUP OVERLAY */}
               {battleState === "victory" && (
                 <Animated.View style={[styles.resultOverlay, { transform: [{ scale: victoryScaleAnim }] }]}>
                   <Text style={styles.resultEmoji}>🏆</Text>
@@ -428,12 +533,23 @@ export default function BossBattleScreen() {
 
                   <View style={styles.rewardCard}>
                     <Text style={styles.rewardCardTitle}>VICTORY REWARDS</Text>
-                    <Text style={styles.rewardCardText}>+{activeBoss.rewardXP} XP</Text>
-                    <Text style={styles.rewardCardText}>+{activeBoss.rewardCoins} Gold Coins</Text>
+                    <Text style={styles.rewardCardText}>
+                      +{activeBoss.rewardXP + (victoryLoot?.bonusXP ?? 0)} XP
+                    </Text>
+                    <Text style={styles.rewardCardText}>
+                      +{activeBoss.rewardCoins + (victoryLoot?.bonusCoins ?? 0)} Gold Coins
+                    </Text>
                     <View style={styles.unlockedItemBox}>
                       <Text style={styles.unlockedItemEmoji}>{activeBoss.rewardItem.icon}</Text>
                       <Text style={styles.unlockedItemName}>{activeBoss.rewardItem.name} Unlocked!</Text>
                     </View>
+
+                    {victoryLoot && (
+                      <View style={[styles.unlockedItemBox, { marginTop: 6, borderColor: "#F59E0B" }]}>
+                        <Text style={styles.unlockedItemEmoji}>{victoryLoot.icon}</Text>
+                        <Text style={styles.unlockedItemName}>Bonus Loot: {victoryLoot.name}!</Text>
+                      </View>
+                    )}
                   </View>
 
                   <TouchableOpacity
@@ -445,7 +561,7 @@ export default function BossBattleScreen() {
                 </Animated.View>
               )}
 
-              {/* DEFEAT MODAL OVERLAY */}
+              {/* DEFEAT POPUP OVERLAY */}
               {battleState === "defeat" && (
                 <View style={styles.resultOverlay}>
                   <Text style={styles.resultEmoji}>💀</Text>
@@ -526,70 +642,73 @@ const styles = StyleSheet.create({
   },
   bossHeaderRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 12,
+    gap: 14,
+    alignItems: "center",
   },
   bossImageEmoji: {
-    fontSize: 36,
+    fontSize: 48,
   },
   bossName: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 18,
     fontWeight: "900",
   },
-  bossDesc: {
-    color: RPGTheme.colors.textMuted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  bossReqText: {
-    color: RPGTheme.colors.purplePrimary,
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 4,
-  },
   defeatedBadge: {
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
-    borderColor: "#22C55E",
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderColor: "#10B981",
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   defeatedText: {
-    color: "#22C55E",
+    color: "#10B981",
     fontSize: 9,
     fontWeight: "900",
   },
+  bossDesc: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  bossReqText: {
+    color: RPGTheme.colors.purplePrimary,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 4,
+  },
   bossStatsRow: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
     borderRadius: 10,
-    paddingVertical: 8,
-    marginBottom: 12,
+    padding: 10,
+    marginVertical: 12,
   },
   bossStatItem: {
     color: RPGTheme.colors.textPrimary,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "800",
   },
   rewardBanner: {
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderColor: "#F59E0B",
+    borderWidth: 1,
     borderRadius: 10,
-    padding: 8,
+    padding: 10,
     marginBottom: 12,
   },
   rewardTitle: {
     color: "#F59E0B",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "900",
+    letterSpacing: 0.5,
+    marginBottom: 2,
   },
   rewardText: {
     color: RPGTheme.colors.textPrimary,
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 2,
+    fontSize: 12,
+    fontWeight: "800",
   },
   battleButton: {
     backgroundColor: RPGTheme.colors.purplePrimary,
@@ -598,41 +717,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   battleButtonDisabled: {
-    backgroundColor: "rgba(148, 163, 184, 0.2)",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
   battleButtonText: {
     color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  backButton: {
+    marginTop: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  backButtonText: {
+    color: RPGTheme.colors.textMuted,
     fontSize: 13,
     fontWeight: "800",
   },
-  backButton: {
-    backgroundColor: RPGTheme.colors.purplePrimary,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 10,
-  },
-  backButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-
-  // BATTLE MODAL STYLES
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.92)",
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
     justifyContent: "center",
     alignItems: "center",
     padding: 16,
   },
   damageOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(239, 68, 68, 0.3)",
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(239, 68, 68, 0.35)",
+    pointerEvents: "none",
   },
   battleContainer: {
     width: "100%",
@@ -641,13 +753,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.5,
     borderColor: RPGTheme.colors.cardBorder,
-    padding: 18,
+    padding: 16,
   },
   arenaHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: 12,
   },
   arenaTitle: {
     color: RPGTheme.colors.textPrimary,
@@ -660,7 +772,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   fighterCard: {
-    marginVertical: 6,
+    marginBottom: 10,
   },
   fighterInfoRow: {
     flexDirection: "row",
@@ -675,69 +787,73 @@ const styles = StyleSheet.create({
   hpText: {
     color: RPGTheme.colors.textMuted,
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   hpTrack: {
-    height: 12,
-    backgroundColor: "rgba(148, 163, 184, 0.2)",
-    borderRadius: 6,
+    height: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 5,
     overflow: "hidden",
   },
   hpFillBoss: {
     height: "100%",
     backgroundColor: "#EF4444",
-    borderRadius: 6,
+    borderRadius: 5,
   },
   hpFillPlayer: {
     height: "100%",
-    backgroundColor: "#22C55E",
-    borderRadius: 6,
+    backgroundColor: "#10B981",
+    borderRadius: 5,
   },
   spritesArena: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "space-around",
     alignItems: "center",
-    paddingVertical: 18,
-    paddingHorizontal: 10,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    borderRadius: 14,
+    paddingVertical: 20,
+    marginVertical: 10,
   },
   spriteBox: {
     alignItems: "center",
-    width: 100,
   },
   spriteEmoji: {
-    fontSize: 44,
+    fontSize: 48,
   },
   spriteName: {
     color: RPGTheme.colors.textPrimary,
     fontSize: 11,
     fontWeight: "800",
-    marginTop: 6,
-    textAlign: "center",
+    marginTop: 4,
   },
   vsText: {
-    color: "#F59E0B",
-    fontSize: 22,
+    color: "#EF4444",
+    fontSize: 18,
     fontWeight: "900",
+    fontStyle: "italic",
   },
   actionsRow: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 12,
+    marginVertical: 10,
   },
   actionBtn: {
     flex: 1,
-    paddingVertical: 12,
     borderRadius: 10,
+    paddingVertical: 10,
     alignItems: "center",
   },
   attackBtn: {
-    backgroundColor: "#DC2626",
+    backgroundColor: "#EF4444",
   },
   defendBtn: {
-    backgroundColor: "#2563EB",
+    backgroundColor: "#3B82F6",
   },
   healBtn: {
-    backgroundColor: "#059669",
+    backgroundColor: "#10B981",
+  },
+  healBtnDisabled: {
+    opacity: 0.5,
   },
   actionBtnText: {
     color: "#FFFFFF",
@@ -745,11 +861,11 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   logContainer: {
-    height: 90,
-    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    maxHeight: 100,
+    backgroundColor: "rgba(0, 0, 0, 0.2)",
     borderRadius: 10,
     padding: 10,
-    marginTop: 14,
+    marginTop: 6,
   },
   logText: {
     color: RPGTheme.colors.textMuted,
@@ -757,84 +873,82 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   resultOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(15, 23, 42, 0.95)",
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(15, 12, 29, 0.95)",
     borderRadius: 20,
+    padding: 20,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
   },
   resultEmoji: {
-    fontSize: 48,
+    fontSize: 54,
     marginBottom: 8,
   },
   victoryTitle: {
     color: "#F59E0B",
     fontSize: 26,
     fontWeight: "900",
+    marginBottom: 4,
   },
   defeatTitle: {
     color: "#EF4444",
     fontSize: 26,
     fontWeight: "900",
+    marginBottom: 4,
   },
   resultSubtitle: {
     color: RPGTheme.colors.textMuted,
     fontSize: 13,
-    marginTop: 4,
     marginBottom: 16,
     textAlign: "center",
   },
   rewardCard: {
-    backgroundColor: RPGTheme.colors.primaryCard,
-    borderColor: "#F59E0B",
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 14,
     width: "100%",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderColor: "#F59E0B",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: 16,
   },
   rewardCardTitle: {
     color: "#F59E0B",
     fontSize: 11,
     fontWeight: "900",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   rewardCardText: {
     color: RPGTheme.colors.textPrimary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
-    marginBottom: 4,
+    marginBottom: 2,
   },
   unlockedItemBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 6,
-    backgroundColor: "rgba(124, 58, 237, 0.2)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: RPGTheme.colors.cardBorder,
+    borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    marginTop: 8,
   },
   unlockedItemEmoji: {
     fontSize: 18,
   },
   unlockedItemName: {
-    color: "#A78BFA",
-    fontSize: 12,
-    fontWeight: "800",
+    color: "#10B981",
+    fontSize: 11,
+    fontWeight: "900",
   },
   resultButton: {
+    width: "100%",
     backgroundColor: RPGTheme.colors.purplePrimary,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    width: "100%",
+    paddingVertical: 12,
     alignItems: "center",
   },
   resultButtonText: {

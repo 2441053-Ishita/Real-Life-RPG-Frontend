@@ -1,5 +1,6 @@
 import { db } from "@/lib/firebase";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import NotificationService from "./notificationService";
 
 export interface LevelCheckResult {
   level: number;
@@ -105,6 +106,15 @@ export class LevelService {
           xpToNextLevel,
           updatedAt: serverTimestamp(),
         });
+
+        if (newLevel > currentLevel) {
+          NotificationService.addNotification(uid, {
+            type: "level_up",
+            title: "Level Up! ⭐",
+            message: `Congratulations! You reached Level ${newLevel}!`,
+          }).catch((e) => console.error("Notification error:", e));
+        }
+
         console.log(`[LevelService] Level updated for user ${uid}: ${currentLevel} -> ${newLevel}`);
         return { level: newLevel, xpToNextLevel, leveledUp: newLevel > currentLevel };
       }

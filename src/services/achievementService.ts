@@ -1,4 +1,5 @@
 import { db } from "@/lib/firebase";
+import NotificationService from "./notificationService";
 import {
   collection,
   doc,
@@ -166,6 +167,17 @@ export class AchievementService {
           updatedAt: serverTimestamp(),
         });
         batchOpsCount++;
+
+        newlyUnlocked.forEach((achId) => {
+          const def = DEFAULT_ACHIEVEMENTS.find((a) => a.id === achId);
+          if (def) {
+            NotificationService.addNotification(uid, {
+              type: "achievement_unlocked",
+              title: "Achievement Unlocked! 🏆",
+              message: `Unlocked "${def.title}"! ${def.description}`,
+            }).catch((e) => console.error("Notification error:", e));
+          }
+        });
       }
 
       if (batchOpsCount > 0) {

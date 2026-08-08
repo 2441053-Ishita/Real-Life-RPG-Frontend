@@ -263,7 +263,7 @@ export default function ProfileScreen() {
     });
 
     // 4. Subscribe to Custom Quests count
-    const customQuestsRef = collection(db, "users", user.uid, "customQuests");
+    const customQuestsRef = collection(db, "users", user.uid, "quests");
     const unsubCustom = onSnapshot(customQuestsRef, (snap) => {
       const completedCount = snap.docs.filter((d) => d.data().completed === true).length;
       setDetailedStats((prev) => ({

@@ -1,4 +1,5 @@
 import UserService from "@/services/userService";
+import { validateHeroName, validatePassword } from "@/utils/authValidation";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -9,6 +10,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -91,6 +93,10 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
+  // Password strength calculation
+  const passValidation = validatePassword(password);
+  const heroValidation = validateHeroName(heroName);
+
   // Animations
   const headerOpacity = useSharedValue(0);
   const headerTranslateY = useSharedValue(28);
@@ -146,24 +152,43 @@ export default function RegisterScreen() {
   }));
 
   const handleRegister = async () => {
-    if (!heroName.trim()) {
-      Alert.alert("Error", "Please enter your Hero Name.");
+    // 1. Hero Name Validation
+    if (!heroValidation.isValid) {
+      if (Platform.OS === "web") {
+        window.alert(`Invalid Hero Name\n\n${heroValidation.error}`);
+      } else {
+        Alert.alert("Invalid Hero Name", heroValidation.error || "Please enter a valid hero name.");
+      }
       return;
     }
+
     if (!email.trim()) {
-      Alert.alert("Error", "Please enter your email.");
+      if (Platform.OS === "web") {
+        window.alert("Missing Email\n\nPlease enter a valid email address.");
+      } else {
+        Alert.alert("Missing Email", "Please enter a valid email address.");
+      }
       return;
     }
-    if (!password) {
-      Alert.alert("Error", "Please enter your password.");
+
+    // 2. Strong Password Validation
+    if (!passValidation.isValid) {
+      const errorMsg = `Password must meet security criteria:\n• ${passValidation.errors.join("\n• ")}`;
+      if (Platform.OS === "web") {
+        window.alert(`Weak Password\n\n${errorMsg}`);
+      } else {
+        Alert.alert("Weak Password", errorMsg);
+      }
       return;
     }
+
+    // 3. Confirm Password Validation
     if (password !== confirmPassword) {
-      Alert.alert("Password Mismatch", "Passwords do not match.");
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert("Weak Password", "Password must be at least 6 characters.");
+      if (Platform.OS === "web") {
+        window.alert("Password Mismatch\n\nPasswords do not match.");
+      } else {
+        Alert.alert("Password Mismatch", "Passwords do not match.");
+      }
       return;
     }
 
@@ -172,14 +197,15 @@ export default function RegisterScreen() {
       await UserService.signUp({
         email: email.trim().toLowerCase(),
         password,
-        heroName: heroName.trim(),
+        heroName: heroValidation.cleanName,
         heroClass: "warrior",
       });
 
+      const successMsg = "Hero Created Successfully! 📧 A verification link has been sent to your email address.";
       if (Platform.OS === "web") {
-        window.alert("Hero Created Successfully!");
+        window.alert(successMsg);
       } else {
-        Alert.alert("Success", "Hero Created Successfully!");
+        Alert.alert("Hero Created!", successMsg);
       }
 
       router.replace("/(tabs)/home");
@@ -273,6 +299,29 @@ export default function RegisterScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
+
+              {/* PASSWORD STRENGTH INDICATOR */}
+              {password.length > 0 && (
+                <View style={styles.strengthContainer}>
+                  <View style={styles.strengthHeader}>
+                    <Text style={styles.strengthLabel}>Password Strength:</Text>
+                    <Text style={[styles.strengthValText, { color: passValidation.color }]}>
+                      {passValidation.label}
+                    </Text>
+                  </View>
+                  <View style={styles.strengthTrack}>
+                    <View
+                      style={[
+                        styles.strengthFill,
+                        {
+                          width: `${Math.max(10, (passValidation.score / 4) * 100)}%`,
+                          backgroundColor: passValidation.color,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              )}
 
               <InputField
                 id="confirmPassword"
@@ -458,6 +507,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: RPGTheme.fonts.body,
     height: "100%",
+  },
+  strengthContainer: {
+    marginBottom: 12,
+    marginTop: -4,
+  },
+  strengthHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  strengthLabel: {
+    color: RPGTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  strengthValText: {
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  strengthTrack: {
+    height: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  strengthFill: {
+    height: "100%",
+    borderRadius: 3,
   },
   matchHint: {
     fontSize: 11,

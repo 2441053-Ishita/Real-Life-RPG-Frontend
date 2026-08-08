@@ -1,5 +1,13 @@
 import { db } from "@/lib/firebase";
-import { doc, runTransaction, serverTimestamp } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  updateDoc,
+  runTransaction,
+  serverTimestamp,
+} from "firebase/firestore";
 import { AchievementService } from "./achievementService";
 import { HistoryService } from "./historyService";
 import { InventoryService } from "./inventoryService";
@@ -15,12 +23,12 @@ export interface RewardResult {
   newXP: number;
   newTotalXP: number;
   newCoins: number;
+  unlockedNextId?: string | null;
 }
 
 export class RewardService {
   /**
    * Calculates XP reward based on quest difficulty.
-   * Easy: 10, Medium: 20, Hard: 40
    */
   static calculateXP(difficulty: QuestDifficultyInput): number {
     const diff = (difficulty || "").toLowerCase();
@@ -38,7 +46,6 @@ export class RewardService {
 
   /**
    * Calculates Coin reward based on quest difficulty.
-   * Easy: 5, Medium: 10, Hard: 20
    */
   static calculateCoins(difficulty: QuestDifficultyInput): number {
     const diff = (difficulty || "").toLowerCase();
@@ -55,11 +62,11 @@ export class RewardService {
   }
 
   /**
-   * Completes a quest atomically using a Firestore transaction:
-   * - Checks if quest is already completed (prevents duplicate rewards).
-   * - Marks quest as completed: { completed: true, updatedAt: serverTimestamp() }.
-   * - Adds XP and Coins to user document users/{uid}.
-   * - Automatically records quest history, calculates level, and checks achievements.
+   * Completes a quest atomically in Firestore:
+   * 1. Marks target quest completed=true.
+   * 2. Unlocks ONLY the immediate next quest in sequence (active=true, locked=false).
+   * 3. Rewards user with XP and Coins on users/{uid}.
+   * 4. Updates completedQuests array and lastActiveDate.
    */
   static async completeQuest(
     uid: string,
@@ -73,10 +80,9 @@ export class RewardService {
       questId = arg3;
     }
 
-    console.log("[DEBUG 4] RewardService.completeQuest called for uid:", uid, "collectionName:", collectionName, "questId:", questId);
     try {
       const userRef = doc(db, "users", uid);
-      const questRef = doc(db, "users", uid, collectionName, questId);
+      const initialQuestRef = doc(db, "users", uid, collectionName, questId);
 
       let questTitle = "Completed Quest";
       let questDescription = "";
@@ -84,11 +90,21 @@ export class RewardService {
       let questEmoji = "⚔️";
 
       const result = await runTransaction(db, async (transaction) => {
-        console.log("[DEBUG 5] Firestore transaction started for questId:", questId);
-        const questSnap = await transaction.get(questRef);
-        console.log("[DEBUG 5.1] Quest snapshot fetched. Exists?:", questSnap.exists());
+        let questRef = initialQuestRef;
+        let questSnap = await transaction.get(questRef);
+
         if (!questSnap.exists()) {
-          throw new Error(`Quest ${questId} not found.`);
+          const fallbackCol =
+            collectionName === "dailyQuests" ? "quests" : "dailyQuests";
+          const fallbackRef = doc(db, "users", uid, fallbackCol, questId);
+          const fallbackSnap = await transaction.get(fallbackRef);
+          if (fallbackSnap.exists()) {
+            questRef = fallbackRef;
+            questSnap = fallbackSnap;
+            collectionName = fallbackCol;
+          } else {
+            throw new Error(`Quest ${questId} not found.`);
+          }
         }
 
         const questData = questSnap.data() || {};
@@ -97,17 +113,8 @@ export class RewardService {
         questDifficulty = questData.difficulty || "easy";
         questEmoji = questData.emoji || "⚔️";
 
-        console.log("==========================================");
-        console.log("[INSPECTION] FIRESTORE QUEST DOCUMENT:");
-        console.log("quest.id:", questId);
-        console.log("completed:", questData.completed);
-        console.log("status:", questData.status ?? "N/A");
-        console.log("all document fields:", JSON.stringify(questData, null, 2));
-        console.log("==========================================");
-
-        // Prevent duplicate rewards if quest is already completed
+        // Prevent double completion
         if (questData.completed) {
-          console.log("[DEBUG 5.2] Quest already completed in Firestore. Returning early.");
           const userSnap = await transaction.get(userRef);
           const userData = userSnap.data() || {};
           return {
@@ -125,42 +132,48 @@ export class RewardService {
           throw new Error(`User ${uid} profile not found.`);
         }
 
-        const userData = userSnap.data();
-        const difficulty = questData.difficulty || "easy";
-
+        const userData = userSnap.data() || {};
         const xpEarned =
           typeof questData.xpReward === "number" && questData.xpReward > 0
             ? questData.xpReward
-            : RewardService.calculateXP(difficulty);
+            : RewardService.calculateXP(questDifficulty);
 
         const coinsEarned =
           typeof questData.coinReward === "number" && questData.coinReward > 0
             ? questData.coinReward
-            : RewardService.calculateCoins(difficulty);
+            : RewardService.calculateCoins(questDifficulty);
 
         const currentXP = userData.xp ?? 0;
         const currentTotalXP = userData.totalXP ?? 0;
         const currentCoins = userData.coins ?? 0;
+        const existingCompleted: string[] = userData.completedQuests || [];
 
         const newXP = currentXP + xpEarned;
         const newTotalXP = currentTotalXP + xpEarned;
         const newCoins = currentCoins + coinsEarned;
 
-        // Mark quest as completed
+        // 1. Mark target quest completed
         transaction.update(questRef, {
           completed: true,
+          active: false,
           updatedAt: serverTimestamp(),
         });
 
-        // Update user profile with XP and Coins
+        // 2. Update user profile statistics
+        const updatedCompletedList = existingCompleted.includes(questId)
+          ? existingCompleted
+          : [...existingCompleted, questId];
+
+        const todayKey = new Date().toISOString().split("T")[0];
+
         transaction.update(userRef, {
           xp: newXP,
           totalXP: newTotalXP,
           coins: newCoins,
+          completedQuests: updatedCompletedList,
+          lastActiveDate: todayKey,
           updatedAt: serverTimestamp(),
         });
-
-        console.log("[DEBUG 6] Transaction operations queued. Committing transaction...");
 
         return {
           completed: true,
@@ -172,8 +185,36 @@ export class RewardService {
         };
       });
 
-      // Automatically record quest history, calculate level, and check achievements
+      // 3. Unlock ONLY the next quest sequentially in Firestore
       if (result && result.completed) {
+        try {
+          const subColRef = collection(db, "users", uid, collectionName);
+          const subColSnap = await getDocs(subColRef);
+          const docList: any[] = subColSnap.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          }));
+
+          // Sort naturally by ID to preserve Quest 1 -> Quest 2 -> Quest 3 -> Quest 4 order
+          docList.sort((a, b) => a.id.localeCompare(b.id));
+
+          const currentIndex = docList.findIndex((q) => q.id === questId);
+          if (currentIndex !== -1 && currentIndex + 1 < docList.length) {
+            const nextQuest = docList[currentIndex + 1];
+            if (nextQuest && !nextQuest.completed) {
+              const nextDocRef = doc(db, "users", uid, collectionName, nextQuest.id);
+              await updateDoc(nextDocRef, {
+                active: true,
+                locked: false,
+                updatedAt: serverTimestamp(),
+              });
+            }
+          }
+        } catch (unlockError) {
+          console.error("[RewardService] Error unlocking next quest:", unlockError);
+        }
+
+        // Auxiliary RPG updates (History, Level, Achievements, Streak)
         try {
           await HistoryService.recordHistory(uid, {
             title: questTitle,
@@ -185,32 +226,32 @@ export class RewardService {
             emoji: questEmoji,
             questId,
           });
-        } catch (historyError) {
-          console.error("[RewardService] Error recording quest history:", historyError);
+        } catch (err) {
+          console.error("[RewardService] History recording error:", err);
         }
 
         try {
           await LevelService.checkAndUpdateLevel(uid, result.newTotalXP);
-        } catch (levelError) {
-          console.error("[RewardService] Error checking level:", levelError);
+        } catch (err) {
+          console.error("[RewardService] Level update error:", err);
         }
 
         try {
           await AchievementService.checkAchievements(uid);
-        } catch (achievementError) {
-          console.error("[RewardService] Error checking achievements:", achievementError);
+        } catch (err) {
+          console.error("[RewardService] Achievement check error:", err);
         }
 
         try {
           await StreakService.updateUserStreak(uid);
-        } catch (streakError) {
-          console.error("[RewardService] Error updating daily streak:", streakError);
+        } catch (err) {
+          console.error("[RewardService] Streak update error:", err);
         }
 
         try {
           await InventoryService.checkInventoryUnlocks(uid);
-        } catch (inventoryError) {
-          console.error("[RewardService] Error checking inventory unlocks:", inventoryError);
+        } catch (err) {
+          console.error("[RewardService] Inventory unlock check error:", err);
         }
       }
 
@@ -222,7 +263,6 @@ export class RewardService {
   }
 }
 
-// Standalone function exports
 export const completeQuest = RewardService.completeQuest;
 export const calculateXP = RewardService.calculateXP;
 export const calculateCoins = RewardService.calculateCoins;

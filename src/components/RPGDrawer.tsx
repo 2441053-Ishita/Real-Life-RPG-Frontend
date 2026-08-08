@@ -101,6 +101,7 @@ export default function RPGDrawer({
     { title: "Hero Statistics", icon: "📊", route: "/statistics" },
     { title: "History", icon: "📖", route: "/quest-history" },
     { title: "Character", icon: "👤", route: "/character" },
+    { title: "Hero Profile", icon: "👤", route: "/hero-profile" },
     { title: "Inventory", icon: "🎒", route: "/inventory" },
     { title: "Leaderboard", icon: "🏆", route: "/leaderboard" },
     { title: "Shop", icon: "🪙", route: "/shop" },

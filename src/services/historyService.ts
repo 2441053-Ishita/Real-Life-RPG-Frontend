@@ -4,6 +4,7 @@ import {
   collection,
   serverTimestamp,
 } from "firebase/firestore";
+import NotificationService from "./notificationService";
 
 export interface QuestHistoryEntryInput {
   title: string;
@@ -47,6 +48,13 @@ export class HistoryService {
         addDoc(primaryHistoryRef, historyData),
         addDoc(secondaryHistoryRef, historyData),
       ]);
+
+      // Record Quest Completed Notification
+      NotificationService.addNotification(uid, {
+        type: "quest_completed",
+        title: "Quest Completed! 📜",
+        message: `Completed "${entry.title}" and earned +${entry.xpEarned} XP & +${entry.coinsEarned} Gold!`,
+      }).catch((e) => console.error("Notification error:", e));
 
       console.log(`[HistoryService] Quest history recorded for user ${uid} in users/${uid}/history`);
     } catch (error) {

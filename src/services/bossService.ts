@@ -2,6 +2,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { InventoryItem, InventoryService } from "./inventoryService";
 import { LevelService } from "./levelService";
+import NotificationService from "./notificationService";
 
 export interface BossData {
   id: string;
@@ -207,6 +208,13 @@ export class BossService {
 
     // Automatically unlock boss reward item in inventory
     await InventoryService.unlockItem(uid, boss.rewardItem);
+
+    // Record Boss Victory Notification
+    NotificationService.addNotification(uid, {
+      type: "boss_victory",
+      title: "Boss Victory! 🐉",
+      message: `You defeated ${boss.name} and earned +${boss.rewardXP} XP & +${boss.rewardCoins} Gold!`,
+    }).catch((e) => console.error("Notification error:", e));
 
     return {
       newXP,

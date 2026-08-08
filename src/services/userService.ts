@@ -1,6 +1,8 @@
 import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   User,
@@ -22,7 +24,7 @@ export interface SignUpOptions {
 
 export class UserService {
   /**
-   * Create Firebase Authentication account and initialize Firestore user profile.
+   * Create Firebase Authentication account, send email verification, and initialize Firestore profile.
    */
   static async signUp({
     email,
@@ -37,11 +39,26 @@ export class UserService {
     );
     const user = userCredential.user;
 
-    // Use existing initializeUserSchema function
+    // Requirement 5: Send email verification after signup
+    try {
+      await sendEmailVerification(user);
+    } catch (e) {
+      console.warn("[UserService] Failed to send verification email:", e);
+    }
+
+    // Initialize user schema in Firestore
     await initializeUserSchema(user.uid, heroName, heroClass);
 
     const profile = await UserService.getUserProfile(user.uid);
     return { user, profile };
+  }
+
+  /**
+   * Send password reset email via Firebase Auth.
+   */
+  static async resetPassword(email: string): Promise<void> {
+    if (!email) throw new Error("Please enter your email address.");
+    await sendPasswordResetEmail(auth, email);
   }
 
   /**
