@@ -943,8 +943,8 @@ const styles = StyleSheet.create({
     padding: 16,
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
-    marginBottom: 27,
+    marginTop: 6,
+    marginBottom: 20,
   },
   victoryEmoji: {
     fontSize: 31,

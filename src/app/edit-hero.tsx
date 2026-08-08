@@ -1,4 +1,5 @@
 import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import ProfileService from "@/services/profileService";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -42,16 +43,15 @@ export default function EditHeroScreen() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const loadHero = async () => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setLoading(false);
+        router.replace("/login");
+        return;
+      }
+
       try {
-        const user = auth.currentUser;
-        if (!user) {
-          router.replace("/login");
-          return;
-        }
-
         const data = await ProfileService.getProfile(user.uid);
-
         if (data) {
           setHeroName(data.heroName || "Hero");
           const currentClass = data.heroClass || data.class;
@@ -66,9 +66,9 @@ export default function EditHeroScreen() {
       } finally {
         setLoading(false);
       }
-    };
+    });
 
-    loadHero();
+    return () => unsubAuth();
   }, []);
 
   const showMessage = (title: string, message: string) => {

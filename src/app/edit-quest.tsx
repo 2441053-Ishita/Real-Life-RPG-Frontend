@@ -50,9 +50,11 @@ const DIFFICULTIES: {
 export default function EditQuestScreen() {
     const params = useLocalSearchParams();
 
-    const questId = Array.isArray(params.id)
+    const rawQuestId = Array.isArray(params.id)
         ? params.id[0]
         : params.id;
+
+    const questId = typeof rawQuestId === "string" ? rawQuestId.replace(/^custom-/, "") : "";
 
     const [title, setTitle] = useState("");
     const [description, setDescription] =
@@ -512,9 +514,11 @@ export default function EditQuestScreen() {
                                         </Text>
 
                                         <Text
-                                            style={
-                                                styles.difficultyXP
-                                            }
+                                            style={[
+                                                styles.difficultyXP,
+                                                selected &&
+                                                styles.selectedDifficultyXP,
+                                            ]}
                                         >
                                             +{item.xp} XP
                                         </Text>
@@ -751,8 +755,9 @@ const styles = StyleSheet.create({
     },
 
     selectedDifficulty: {
-        backgroundColor: "#312E81",
-        borderColor: "#8B5CF6",
+        backgroundColor: "#5B21B6",
+        borderColor: "#A78BFA",
+        borderWidth: 2,
     },
 
     difficultyEmoji: {
@@ -761,20 +766,26 @@ const styles = StyleSheet.create({
     },
 
     difficultyName: {
-        color: "#CBD5E1",
+        color: "#94A3B8",
         fontSize: 10,
         fontWeight: "800",
     },
 
     selectedDifficultyText: {
         color: "#FFFFFF",
+        fontWeight: "900",
     },
 
     difficultyXP: {
-        color: "#A78BFA",
+        color: "#64748B",
         fontSize: 9,
         fontWeight: "800",
         marginTop: 4,
+    },
+
+    selectedDifficultyXP: {
+        color: "#FDE68A",
+        fontWeight: "900",
     },
 
     rewardCard: {
