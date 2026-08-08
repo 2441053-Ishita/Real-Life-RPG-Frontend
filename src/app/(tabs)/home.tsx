@@ -15,12 +15,12 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Modal,
 } from "react-native";
 
 import AvatarImage from "@/components/AvatarImage";
 import ChestService, { ChestReward } from "@/services/chestService";
 import DailyRewardService, { DAILY_REWARDS_SCHEDULE, DailyRewardItem } from "@/services/dailyRewardService";
-import { Modal } from "react-native";
 
 type HeroData = {
   heroName: string;
@@ -38,13 +38,6 @@ type HeroData = {
   equippedAvatar?: string;
   avatarUrl?: string | null;
 };
-
-const HOME_QUESTS = [
-  { id: "daily-1", title: "Morning Workout", xp: 20, emoji: "💪" },
-  { id: "daily-2", title: "Study Session", xp: 30, emoji: "📚" },
-  { id: "daily-3", title: "Stay Hydrated", xp: 10, emoji: "💧" },
-  { id: "daily-4", title: "Mindfulness", xp: 15, emoji: "🧘" },
-];
 
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
@@ -67,6 +60,7 @@ export default function HomeScreen() {
   const xpProgressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const chestScaleAnim = useRef(new Animated.Value(0.4)).current;
+  const shineAnim = useRef(new Animated.Value(0)).current;
 
   const [openingChest, setOpeningChest] = useState(false);
   const [chestReward, setChestReward] = useState<ChestReward | null>(null);
@@ -201,7 +195,7 @@ export default function HomeScreen() {
 
         Animated.timing(xpProgressAnim, {
           toValue: Math.min(100, (xp / 100) * 100),
-          duration: 800,
+          duration: 900,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: false,
         }).start();
@@ -234,13 +228,29 @@ export default function HomeScreen() {
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
-          toValue: 1.08,
-          duration: 1000,
+          toValue: 1.06,
+          duration: 1200,
           useNativeDriver: true,
         }),
         Animated.timing(pulseAnim, {
           toValue: 1.0,
-          duration: 1000,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shineAnim, {
+          toValue: 1,
+          duration: 2500,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shineAnim, {
+          toValue: 0,
+          duration: 0,
           useNativeDriver: true,
         }),
       ])
@@ -275,12 +285,15 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.cardHeaderRow}>
-            <View style={styles.avatarFrame}>
-              <AvatarImage
-                avatarUrl={hero.avatarUrl}
-                equippedAvatar={hero.equippedAvatar}
-                size={64}
-              />
+            <View style={styles.avatarFrameContainer}>
+              <View style={[styles.avatarGlow, { backgroundColor: rank.color }]} />
+              <View style={[styles.avatarFrame, { borderColor: rank.color }]}>
+                <AvatarImage
+                  avatarUrl={hero.avatarUrl}
+                  equippedAvatar={hero.equippedAvatar}
+                  size={68}
+                />
+              </View>
               <View style={[styles.levelRing, { backgroundColor: rank.color }]}>
                 <Text style={styles.levelRingText}>Lvl {hero.level}</Text>
               </View>
@@ -290,10 +303,10 @@ export default function HomeScreen() {
               <Text style={styles.heroNameText} numberOfLines={1}>
                 {hero.heroName}
               </Text>
-              <Text style={styles.heroClassSubtitle}>{hero.className}</Text>
+              <Text style={styles.heroClassSubtitle}>🛡️ {hero.className}</Text>
 
               <View style={[styles.rankTag, { backgroundColor: rank.color }]}>
-                <Text style={styles.rankTagText}>👑 {rank.name} RANK</Text>
+                <Text style={styles.rankTagText}>👑 {rank.name.toUpperCase()} RANK</Text>
               </View>
             </View>
           </View>
@@ -322,22 +335,28 @@ export default function HomeScreen() {
           {/* STATS STRIP */}
           <View style={styles.statsStrip}>
             <View style={styles.statBox}>
-              <Text style={styles.statIcon}>🪙</Text>
-              <Text style={styles.statNum}>{hero.coins}</Text>
+              <View style={styles.statIconBadge}>
+                <Text style={styles.statIcon}>🪙</Text>
+              </View>
+              <Text style={styles.statNum}>{hero.coins.toLocaleString()}</Text>
               <Text style={styles.statSub}>Coins</Text>
             </View>
             <View style={styles.statDivider} />
             <Animated.View
               style={[styles.statBox, { transform: [{ scale: pulseAnim }] }]}
             >
-              <Text style={styles.statIcon}>🔥</Text>
+              <View style={[styles.statIconBadge, styles.streakIconBadge]}>
+                <Text style={styles.statIcon}>🔥</Text>
+              </View>
               <Text style={styles.statNum}>{hero.streak} Days</Text>
               <Text style={styles.statSub}>Streak</Text>
             </Animated.View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
-              <Text style={styles.statIcon}>⭐</Text>
-              <Text style={styles.statNum}>{hero.totalXP}</Text>
+              <View style={styles.statIconBadge}>
+                <Text style={styles.statIcon}>⭐</Text>
+              </View>
+              <Text style={styles.statNum}>{hero.totalXP.toLocaleString()}</Text>
               <Text style={styles.statSub}>Total XP</Text>
             </View>
           </View>
@@ -355,7 +374,9 @@ export default function HomeScreen() {
           return (
             <View style={[styles.sectionCard, availableCount > 0 && styles.activeChestCard]}>
               <View style={styles.chestRow}>
-                <Text style={styles.chestIconEmoji}>{availableCount > 0 ? "🎁" : "🧰"}</Text>
+                <View style={styles.chestIconWrapper}>
+                  <Text style={styles.chestIconEmoji}>{availableCount > 0 ? "🎁" : "🧰"}</Text>
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.chestCardTitle}>
                     {availableCount > 0
@@ -382,7 +403,7 @@ export default function HomeScreen() {
                     />
                   </View>
                   <Text style={styles.chestProgressText}>
-                    {10 - remainingQuests} / 10 Quests Completed
+                    ⚡ {10 - remainingQuests} / 10 Quests Completed
                   </Text>
                 </View>
               )}
@@ -409,8 +430,12 @@ export default function HomeScreen() {
         ==================================== */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionCardHeader}>
-            <Text style={styles.sectionCardTitle}>📅 Daily Login Rewards</Text>
-            <Text style={styles.dailyRewardCycleText}>Cycle Day {hero.dailyLoginDay} / 7</Text>
+            <View style={styles.titleBadgeGroup}>
+              <Text style={styles.sectionCardTitle}>📅 Daily Login Rewards</Text>
+            </View>
+            <View style={styles.cycleBadge}>
+              <Text style={styles.dailyRewardCycleText}>Cycle Day {hero.dailyLoginDay} / 7</Text>
+            </View>
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dailyStripContainer}>
@@ -431,9 +456,13 @@ export default function HomeScreen() {
                   <Text style={styles.dailyIconEmoji}>{item.icon}</Text>
                   <Text style={styles.dailyTitleText} numberOfLines={1}>{item.title}</Text>
                   {isPastClaimed ? (
-                    <Text style={styles.dailyCheckmark}>✓ Claimed</Text>
+                    <View style={styles.claimedBadge}>
+                      <Text style={styles.dailyCheckmark}>✓ Claimed</Text>
+                    </View>
                   ) : isCurrentDay ? (
-                    <Text style={styles.dailyReadyBadge}>READY</Text>
+                    <View style={styles.readyBadge}>
+                      <Text style={styles.dailyReadyBadge}>READY</Text>
+                    </View>
                   ) : (
                     <Text style={styles.dailyUpcomingText}>Upcoming</Text>
                   )}
@@ -495,7 +524,9 @@ export default function HomeScreen() {
         ==================================== */}
         <View style={styles.bossCard}>
           <View style={styles.bossCardContent}>
-            <Text style={styles.bossEmoji}>🐉</Text>
+            <View style={styles.bossEmojiWrapper}>
+              <Text style={styles.bossEmoji}>🐉</Text>
+            </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.bossCardTitle}>World Map & Boss Battles</Text>
               <Text style={styles.bossCardSub}>
@@ -519,36 +550,48 @@ export default function HomeScreen() {
         <View style={styles.quickGrid}>
           <TouchableOpacity
             style={[styles.quickCard, { borderColor: "#7C3AED" }]}
+            activeOpacity={0.8}
             onPress={() => router.push("/quests" as any)}
           >
-            <Text style={styles.quickIcon}>📜</Text>
+            <View style={[styles.quickIconBg, { backgroundColor: "rgba(124, 58, 237, 0.15)" }]}>
+              <Text style={styles.quickIcon}>📜</Text>
+            </View>
             <Text style={styles.quickTitle}>Quests</Text>
             <Text style={styles.quickSub}>Missions</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.quickCard, { borderColor: "#EC4899" }]}
+            activeOpacity={0.8}
             onPress={() => router.push("/inventory" as any)}
           >
-            <Text style={styles.quickIcon}>🎒</Text>
+            <View style={[styles.quickIconBg, { backgroundColor: "rgba(236, 72, 153, 0.15)" }]}>
+              <Text style={styles.quickIcon}>🎒</Text>
+            </View>
             <Text style={styles.quickTitle}>Inventory</Text>
             <Text style={styles.quickSub}>Armory</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.quickCard, { borderColor: "#3B82F6" }]}
+            activeOpacity={0.8}
             onPress={() => router.push("/character" as any)}
           >
-            <Text style={styles.quickIcon}>👤</Text>
+            <View style={[styles.quickIconBg, { backgroundColor: "rgba(59, 130, 246, 0.15)" }]}>
+              <Text style={styles.quickIcon}>👤</Text>
+            </View>
             <Text style={styles.quickTitle}>Character</Text>
             <Text style={styles.quickSub}>Skills & Gear</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.quickCard, { borderColor: "#D4AF37" }]}
+            style={[styles.quickCard, { borderColor: "#F59E0B" }]}
+            activeOpacity={0.8}
             onPress={() => router.push("/shop" as any)}
           >
-            <Text style={styles.quickIcon}>🪙</Text>
+            <View style={[styles.quickIconBg, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
+              <Text style={styles.quickIcon}>🪙</Text>
+            </View>
             <Text style={styles.quickTitle}>Shop</Text>
             <Text style={styles.quickSub}>Marketplace</Text>
           </TouchableOpacity>
@@ -648,19 +691,20 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: RPGTheme.colors.bg,
+    backgroundColor: "#0F172A",
   },
   loadingScreen: {
     flex: 1,
-    backgroundColor: RPGTheme.colors.bg,
+    backgroundColor: "#0F172A",
     justifyContent: "center",
     alignItems: "center",
   },
   loadingText: {
-    color: RPGTheme.colors.textSecondary,
+    color: "#94A3B8",
     fontSize: 14,
     marginTop: 16,
     fontWeight: "700",
+    letterSpacing: 1,
   },
   container: {
     padding: 16,
@@ -669,177 +713,234 @@ const styles = StyleSheet.create({
 
   // HERO CASTLE CARD
   heroCastleCard: {
-    backgroundColor: RPGTheme.colors.primaryCard,
+    backgroundColor: "#1E293B",
     borderRadius: 24,
     padding: 20,
     borderWidth: 1.5,
-    borderColor: RPGTheme.colors.goldBorder,
+    borderColor: "#D4AF37",
     marginBottom: 20,
     position: "relative",
     overflow: "hidden",
+    shadowColor: "#D4AF37",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
   },
   castleBackgroundDecor: {
     position: "absolute",
-    right: -10,
-    bottom: -10,
+    right: -15,
+    bottom: -15,
     opacity: 0.08,
   },
   castleBgIcon: {
-    fontSize: 120,
+    fontSize: 130,
   },
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 18,
+  },
+  avatarFrameContainer: {
+    position: "relative",
+    marginRight: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarGlow: {
+    position: "absolute",
+    width: 76,
+    height: 76,
+    borderRadius: 26,
+    opacity: 0.25,
   },
   avatarFrame: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: RPGTheme.colors.secondaryCard,
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#0F172A",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: RPGTheme.colors.purplePrimary,
-    marginRight: 14,
-    position: "relative",
-  },
-  avatarEmoji: {
-    fontSize: 32,
+    borderWidth: 2.5,
+    overflow: "hidden",
   },
   levelRing: {
     position: "absolute",
-    bottom: -6,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 8,
+    bottom: -8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#0F172A",
+    elevation: 4,
   },
   levelRingText: {
     color: "#FFFFFF",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "900",
+    letterSpacing: 0.5,
   },
   heroHeaderInfo: {
     flex: 1,
   },
   heroNameText: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heroName,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "900",
+    letterSpacing: 0.5,
   },
   heroClassSubtitle: {
-    color: RPGTheme.colors.textSecondary,
+    color: "#94A3B8",
     fontFamily: RPGTheme.fonts.body,
     fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 6,
+    fontWeight: "700",
+    marginTop: 2,
+    marginBottom: 8,
   },
   rankTag: {
     alignSelf: "flex-start",
     paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
   },
   rankTagText: {
     color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heading,
     fontSize: 10,
     fontWeight: "900",
+    letterSpacing: 0.8,
   },
 
   // XP SECTION
   xpSection: {
-    marginBottom: 16,
+    marginBottom: 18,
   },
   xpRowLabel: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 6,
+    alignItems: "center",
+    marginBottom: 7,
   },
   xpTitle: {
-    color: RPGTheme.colors.textSecondary,
+    color: "#94A3B8",
     fontFamily: RPGTheme.fonts.heading,
     fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
+    fontWeight: "900",
+    letterSpacing: 1.2,
   },
   xpValueText: {
-    color: RPGTheme.colors.goldLight,
+    color: "#FDE68A",
     fontFamily: RPGTheme.fonts.stats,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "900",
   },
   xpTrack: {
-    height: 9,
-    backgroundColor: RPGTheme.colors.secondaryCard,
+    height: 10,
+    backgroundColor: "#0F172A",
     borderRadius: 10,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.05)",
   },
   xpFill: {
     height: "100%",
-    backgroundColor: RPGTheme.colors.purplePrimary,
+    backgroundColor: "#7C3AED",
     borderRadius: 10,
   },
 
   // STATS STRIP
   statsStrip: {
     flexDirection: "row",
-    backgroundColor: RPGTheme.colors.secondaryCard,
-    borderRadius: 16,
-    padding: 12,
+    backgroundColor: "#0F172A",
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "space-around",
     borderWidth: 1,
-    borderColor: "rgba(124, 58, 237, 0.2)",
+    borderColor: "rgba(124, 58, 237, 0.3)",
   },
   statBox: {
     alignItems: "center",
+    flex: 1,
+  },
+  statIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  streakIconBadge: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
   },
   statIcon: {
     fontSize: 18,
-    marginBottom: 2,
   },
   statNum: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.stats,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "900",
   },
   statSub: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontFamily: RPGTheme.fonts.body,
     fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
   },
   statDivider: {
     width: 1,
-    height: 24,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    height: 32,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
   },
 
   // SECTION CARD
   sectionCard: {
-    backgroundColor: RPGTheme.colors.primaryCard,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: RPGTheme.colors.cardBorder,
+    backgroundColor: "#1E293B",
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: "#334155",
     marginBottom: 20,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   sectionCardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 14,
+  },
+  titleBadgeGroup: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   sectionCardTitle: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heading,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
   },
+  cycleBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.3)",
+  },
   viewAllText: {
-    color: RPGTheme.colors.purpleSecondary,
+    color: "#A78BFA",
     fontFamily: RPGTheme.fonts.body,
     fontSize: 12,
     fontWeight: "800",
@@ -850,87 +951,101 @@ const styles = StyleSheet.create({
   },
   missionBox: {
     flex: 1,
-    backgroundColor: RPGTheme.colors.secondaryCard,
-    borderRadius: 14,
-    padding: 12,
+    backgroundColor: "#0F172A",
+    borderRadius: 16,
+    padding: 14,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.05)",
   },
   missionBoxNum: {
-    color: RPGTheme.colors.goldLight,
+    color: "#FDE68A",
     fontFamily: RPGTheme.fonts.stats,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
   },
   missionBoxLabel: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontFamily: RPGTheme.fonts.body,
     fontSize: 10,
-    marginTop: 2,
+    fontWeight: "700",
+    marginTop: 3,
   },
 
   // BOSS CARD
   bossCard: {
-    backgroundColor: RPGTheme.colors.primaryCard,
-    borderRadius: 20,
-    padding: 16,
+    backgroundColor: "#1E293B",
+    borderRadius: 22,
+    padding: 18,
     borderWidth: 1.5,
-    borderColor: RPGTheme.colors.purpleSecondary,
-    marginBottom: 20,
-    shadowColor: RPGTheme.colors.purplePrimary,
+    borderColor: "#A78BFA",
+    marginBottom: 22,
+    shadowColor: "#7C3AED",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
     elevation: 6,
   },
   bossCardContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
+    gap: 14,
+    marginBottom: 16,
+  },
+  bossEmojiWrapper: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "rgba(124, 58, 237, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.3)",
   },
   bossEmoji: {
-    fontSize: 32,
+    fontSize: 30,
   },
   bossCardTitle: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heading,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
   },
   bossCardSub: {
-    color: RPGTheme.colors.textSecondary,
+    color: "#94A3B8",
     fontFamily: RPGTheme.fonts.body,
     fontSize: 11,
     lineHeight: 16,
+    marginTop: 2,
   },
   bossFightButton: {
-    backgroundColor: RPGTheme.colors.purplePrimary,
-    paddingVertical: 13,
+    backgroundColor: "#7C3AED",
+    paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: RPGTheme.colors.purpleSecondary,
-    shadowColor: RPGTheme.colors.purplePrimary,
+    borderColor: "#A78BFA",
+    shadowColor: "#7C3AED",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 5,
   },
   bossFightButtonText: {
     color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heading,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "900",
     letterSpacing: 1,
   },
 
   // QUICK GRID
   gridSectionTitle: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heading,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "900",
-    marginBottom: 12,
+    marginBottom: 14,
   },
   quickGrid: {
     flexDirection: "row",
@@ -939,77 +1054,100 @@ const styles = StyleSheet.create({
   },
   quickCard: {
     width: (Dimensions.get("window").width - 44) / 2,
-    backgroundColor: RPGTheme.colors.primaryCard,
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: "#1E293B",
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1.5,
     alignItems: "center",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  quickIconBg: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
   },
   quickIcon: {
-    fontSize: 26,
-    marginBottom: 6,
+    fontSize: 24,
   },
   quickTitle: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontFamily: RPGTheme.fonts.heading,
     fontSize: 14,
     fontWeight: "900",
   },
   quickSub: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontFamily: RPGTheme.fonts.body,
     fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
   },
 
   // CHEST CARD STYLES
   activeChestCard: {
     borderColor: "#F59E0B",
     borderWidth: 2,
-    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    backgroundColor: "#271E10",
   },
   chestRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 8,
+    gap: 14,
+    marginBottom: 10,
+  },
+  chestIconWrapper: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   chestIconEmoji: {
-    fontSize: 34,
+    fontSize: 30,
   },
   chestCardTitle: {
-    color: RPGTheme.colors.textPrimary,
-    fontSize: 15,
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "900",
   },
   chestCardSub: {
-    color: RPGTheme.colors.textSecondary,
+    color: "#94A3B8",
     fontSize: 11,
-    marginTop: 2,
+    marginTop: 3,
+    lineHeight: 16,
   },
   chestProgressBox: {
-    marginTop: 6,
+    marginTop: 8,
   },
   chestTrack: {
-    height: 8,
-    backgroundColor: "rgba(148, 163, 184, 0.2)",
-    borderRadius: 4,
+    height: 9,
+    backgroundColor: "#0F172A",
+    borderRadius: 5,
     overflow: "hidden",
-    marginBottom: 4,
+    marginBottom: 5,
   },
   chestFill: {
     height: "100%",
     backgroundColor: "#F59E0B",
-    borderRadius: 4,
+    borderRadius: 5,
   },
   chestProgressText: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontSize: 10,
     fontWeight: "700",
   },
   openChestBtn: {
     backgroundColor: "#F59E0B",
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 13,
     alignItems: "center",
     marginTop: 10,
   },
@@ -1017,6 +1155,7 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     fontSize: 13,
     fontWeight: "900",
+    letterSpacing: 0.5,
   },
 
   // CHEST MODAL STYLES
@@ -1030,7 +1169,7 @@ const styles = StyleSheet.create({
   chestRewardCard: {
     width: "100%",
     maxWidth: 360,
-    backgroundColor: RPGTheme.colors.primaryCard,
+    backgroundColor: "#1E293B",
     borderRadius: 24,
     borderWidth: 2,
     borderColor: "#F59E0B",
@@ -1052,7 +1191,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   rewardSubtitleText: {
-    color: RPGTheme.colors.textSecondary,
+    color: "#94A3B8",
     fontSize: 12,
     textAlign: "center",
     marginTop: 4,
@@ -1081,18 +1220,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   itemDetailName: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "800",
   },
   itemDetailDesc: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontSize: 11,
     marginTop: 2,
     textAlign: "center",
   },
   claimRewardBtn: {
-    backgroundColor: RPGTheme.colors.purplePrimary,
+    backgroundColor: "#7C3AED",
     borderRadius: 12,
     paddingVertical: 14,
     width: "100%",
@@ -1118,9 +1257,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   dailyItemBox: {
-    width: 90,
-    backgroundColor: "rgba(30, 41, 59, 0.7)",
-    borderRadius: 14,
+    width: 92,
+    backgroundColor: "#0F172A",
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(148, 163, 184, 0.15)",
     padding: 10,
@@ -1136,7 +1275,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(34, 197, 94, 0.08)",
   },
   dailyDayText: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontSize: 10,
     fontWeight: "800",
     marginBottom: 4,
@@ -1146,16 +1285,28 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   dailyTitleText: {
-    color: RPGTheme.colors.textPrimary,
+    color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "800",
     textAlign: "center",
     marginBottom: 6,
   },
+  claimedBadge: {
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
   dailyCheckmark: {
     color: "#22C55E",
     fontSize: 9,
     fontWeight: "900",
+  },
+  readyBadge: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   dailyReadyBadge: {
     color: "#F59E0B",
@@ -1163,14 +1314,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   dailyUpcomingText: {
-    color: RPGTheme.colors.textMuted,
+    color: "#64748B",
     fontSize: 9,
     fontWeight: "700",
   },
   claimDailyBtn: {
-    backgroundColor: RPGTheme.colors.purplePrimary,
-    borderRadius: 12,
-    paddingVertical: 12,
+    backgroundColor: "#7C3AED",
+    borderRadius: 14,
+    paddingVertical: 13,
     alignItems: "center",
     marginTop: 10,
   },
